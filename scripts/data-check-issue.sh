@@ -39,7 +39,7 @@ body=$(jq -r --arg site "$SITE" '
     "", "### 🟡 提醒（\(.warnings | length)）：資料照常更新", "", (.warnings | items)
   else empty end),
   "", "---",
-  "「共筆第 N 行」指的是共筆原始 Markdown 的行號。揪松主辦的確認、下架、修正欄位都寫在 `overrides/`，見 README。"
+  "「共筆第 N 行」指的是共筆原始 Markdown 的行號。怎麼處理、揪松主辦的確認、下架、修正欄位，見[管理員手冊](https://github.com/g0v/community-calendar/blob/main/docs/管理員手冊.md)。"
 ' "$REPORT")
 title="活動資料有 ${total} 個地方要看"
 [ "$errors" -gt 0 ] && title="活動資料同步失敗，網站停在上一版（共 ${total} 個地方要看）"
