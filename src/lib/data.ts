@@ -185,7 +185,7 @@ export function reportUrl(e: Event) {
     '',
     '',
     '---',
-    '管理員處理方式：在 `overrides/' + e.id + '.json` 修正欄位或標 `"hidden": true`，見 README。',
+    '管理員處理方式：在 `overrides/' + e.id + '.json` 修正欄位或標 `"hidden": true`，見[管理員手冊](' + REPO + '/blob/main/docs/管理員手冊.md)。',
   ].join('\n');
   return `${REPO}/issues/new?title=${encodeURIComponent(`回報：${e.title}`)}&body=${encodeURIComponent(body)}`;
 }

@@ -3,7 +3,7 @@
 // 跟一般同步最大的不同：**共筆是會被定期清掉的**（過期的活動會被刪），所以這裡不能「共筆長怎樣、資料就長怎樣」。
 //   - 共筆上還在的：有改就更新那一筆
 //   - 共筆上不見的：留著，標 in_source: false 與消失的日期
-//   - 一筆都不刪。要下架請用 overrides/{id}.json 的 hidden（見 README）
+//   - 一筆都不刪。要下架請用 overrides/{id}.json 的 hidden（見 docs/管理員手冊.md）
 //
 // 一場活動一個檔案，所以 GitHub 上 events/{id}.json 的 History 就是那場活動的修改紀錄。
 // 為了讓那份 History 只記「真的有改」的時候，檔案裡刻意不放每天都會變的欄位（例如 last_seen）。
