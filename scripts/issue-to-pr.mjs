@@ -2,6 +2,7 @@
 //
 //   修改活動 → overrides/{活動代號}.json：把有填的欄位寫進 set，「請拿掉」寫成 hidden，理由記在 note
 //   新增活動 → manual/{日期}-i{issue 編號}.json：一筆新的活動
+//   批次修改 → 多個 overrides/{活動代號}.json：只改系列、揪松主辦、拿掉；只有 repo 協作者送的才開 PR
 //
 // issue 內容是任何人都能寫的，所以這裡只做白名單：
 //   - 只認得表單上有的欄位，其他一律忽略
@@ -21,7 +22,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // 表單上的標題 → 欄位。兩份表單共用
 const LABELS = {
-  '活動代號': 'event_id', '活動名稱': 'name',
+  '活動代號': 'event_id', '活動代號（一行一個）': 'event_ids', '活動名稱': 'name',
   '日期': 'date', '結束日期（跨天才填）': 'date_end', '開始時間': 'start_time', '結束時間': 'end_time',
   '地點': 'venue', '地址': 'address', '主辦': 'host',
   '報名網址': 'signup_url', '線上參加網址': 'online_url', '共筆網址': 'notes_url', '活動頁': 'page_url',
@@ -74,6 +75,8 @@ function validate(f, errors) {
       if (/^(是|yes|true)$/i.test(s)) v[k] = true;
       else if (/^(不是|否|no|false)$/i.test(s)) v[k] = false;
       else errors.push(`「揪松主辦」請寫「是」或「不是」，現在是「${s}」`);
+    } else if (k === 'event_ids') {
+      v[k] = s.slice(0, 30000); // 一行一個，在批次那一段逐一驗證
     } else if (k === 'description' || k === 'reason') {
       v[k] = s.slice(0, 2000);
     } else {
@@ -83,46 +86,91 @@ function validate(f, errors) {
   return v;
 }
 
+const MAX_BATCH = 300;
+
+// AI Monday 的活動不在這個 repo，代號查不到檔案也收
+const known = (id) => id.startsWith('aimonday-') || existsSync(path.join(ROOT, 'events', `${id}.json`)) || existsSync(path.join(ROOT, 'manual', `${id}.json`));
+
+// 改一場活動：manual/ 的活動直接改那個檔案；其他的寫進 overrides/。回傳 [檔案, 新內容]
+async function editOne(id, { set, series, jothon, takedown }, note) {
+  if (existsSync(path.join(ROOT, 'manual', `${id}.json`))) {
+    const file = `manual/${id}.json`;
+    const cur = JSON.parse(await readFile(path.join(ROOT, file), 'utf8'));
+    return [file, { ...cur, ...set, ...(series ? { series_fixed: series.series } : {}), ...(jothon ? { jothon_fixed: jothon.jothon } : {}), ...(takedown ? { hidden: true } : {}) }];
+  }
+  const file = `overrides/${id}.json`;
+  const cur = existsSync(path.join(ROOT, file)) ? JSON.parse(await readFile(path.join(ROOT, file), 'utf8')) : {};
+  return [file, {
+    ...cur,
+    ...(takedown ? { hidden: true } : {}),
+    ...(Object.keys(set).length ? { set: { ...(cur.set ?? {}), ...set } } : {}),
+    ...(series ?? {}),
+    ...(jothon ?? {}),
+    note: [cur.note, note].filter(Boolean).join('／'),
+  }];
+}
+
+// 送出的人在這個 repo 的權限：admin／maintain／write／triage／read／none。查不到回 null（呼叫的地方一律當成不放行）
+export async function permission(login, repo = process.env.GITHUB_REPOSITORY, token = process.env.GH_TOKEN) {
+  if (!login || !repo || !token) return null;
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+    });
+    if (r.status === 404) return 'none';
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j.role_name ?? j.permission ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function handle(issue) {
   const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name));
-  const kind = labels.includes('修改活動') ? 'edit' : labels.includes('新增活動') ? 'new' : null;
-  if (!kind) return { ok: false, errors: ['這張 issue 沒有「修改活動」或「新增活動」標籤'] };
+  const kind = labels.includes('批次修改') ? 'batch' : labels.includes('修改活動') ? 'edit' : labels.includes('新增活動') ? 'new' : null;
+  if (!kind) return { ok: false, errors: ['這張 issue 沒有「修改活動」「新增活動」或「批次修改」標籤'] };
   const errors = [];
   const f = validate(parseIssueBody(issue.body), errors);
   const ref = `#${issue.number}`;
 
+  // 用文字欄位而不是下拉選單：GitHub 的 issue 表單只有文字欄位能從網址預先填好
+  const takedown = /拿掉|下架|移除/.test(f.takedown ?? '');
+  const series = 'series' in f ? { series: f.series } : null;
+  const jothon = 'jothon' in f ? { jothon: f.jothon } : null;
+
   if (kind === 'edit') {
     if (!f.event_id) errors.push('缺少「活動代號」');
-    const isAm = f.event_id?.startsWith('aimonday-');
-    if (f.event_id && !isAm && !existsSync(path.join(ROOT, 'events', `${f.event_id}.json`)) && !existsSync(path.join(ROOT, 'manual', `${f.event_id}.json`))) {
-      errors.push(`找不到活動代號「${f.event_id}」，請從活動頁的「修改這筆」進來`);
-    }
+    if (f.event_id && !known(f.event_id)) errors.push(`找不到活動代號「${f.event_id}」，請從活動頁的「修改這筆」進來`);
     const set = Object.fromEntries(Object.entries(TO_EVENT).filter(([k]) => f[k]).map(([k, to]) => [to, f[k]]));
-    // 用文字欄位而不是下拉選單：GitHub 的 issue 表單只有文字欄位能從網址預先填好
-    const takedown = /拿掉|下架|移除/.test(f.takedown ?? '');
-    const series = 'series' in f ? { series: f.series } : null;
-    const jothon = 'jothon' in f ? { jothon: f.jothon } : null;
     if (!Object.keys(set).length && !takedown && !series && !jothon) errors.push('沒有填任何要改的欄位，也沒有選擇拿掉');
     if (errors.length) return { ok: false, kind, errors };
+    const file = await editOne(f.event_id, { set, series, jothon, takedown }, `${ref}：${(f.reason ?? '').replace(/\s+/g, ' ').slice(0, 200)}`);
+    return done(kind, issue, [file], { ...set, ...(series ?? {}), ...(jothon ?? {}) }, takedown, f.reason, f.event_id);
+  }
 
-    // manual/ 的活動直接改那個檔案；其他的寫進 overrides/
-    if (existsSync(path.join(ROOT, 'manual', `${f.event_id}.json`))) {
-      const file = `manual/${f.event_id}.json`;
-      const cur = JSON.parse(await readFile(path.join(ROOT, file), 'utf8'));
-      const next = { ...cur, ...set, ...(series ? { series_fixed: series.series } : {}), ...(jothon ? { jothon_fixed: jothon.jothon } : {}), ...(takedown ? { hidden: true } : {}) };
-      return done(kind, issue, [[file, next]], { ...set, ...(series ?? {}), ...(jothon ?? {}) }, takedown, f.reason, f.event_id);
+  // 批次修改：只開放系列、揪松主辦、拿掉——這三樣的正本本來就在修正檔，不會蓋掉共筆上的內容。
+  // 只有 repo 協作者送的才開 PR：權限上合併前本來就要人審，擋的是「陌生人送 150 筆，對照表長到沒人逐列看」
+  if (kind === 'batch') {
+    const login = issue.user?.login;
+    const perm = await permission(login);
+    if (perm === null) return { ok: false, kind, errors: [`查不到 @${login} 在這個 repo 的權限，為了安全先不開 PR。請管理員稍後在 issue 上隨便改一個字重試`] };
+    if (!['admin', 'maintain', 'write'].includes(perm)) {
+      return { ok: false, kind, errors: [`批次修改只開放給 repo 的協作者（有寫入權限的人），@${login} 目前是「${perm}」。請改用活動頁的「修改這筆」一筆一筆送，或寄信給揪松團`] };
     }
-    const file = `overrides/${f.event_id}.json`;
-    const cur = existsSync(path.join(ROOT, file)) ? JSON.parse(await readFile(path.join(ROOT, file), 'utf8')) : {};
-    const next = {
-      ...cur,
-      ...(takedown ? { hidden: true } : {}),
-      ...(Object.keys(set).length ? { set: { ...(cur.set ?? {}), ...set } } : {}),
-      ...(series ?? {}),
-      ...(jothon ?? {}),
-      note: [cur.note, `${ref}：${(f.reason ?? '').replace(/\s+/g, ' ').slice(0, 200)}`].filter(Boolean).join('／'),
-    };
-    return done(kind, issue, [[file, next]], { ...set, ...(series ?? {}), ...(jothon ?? {}) }, takedown, f.reason, f.event_id);
+    const ids = [...new Set((f.event_ids ?? '').split(/[\s,，、]+/).filter(Boolean))];
+    if (!ids.length) errors.push('缺少「活動代號」');
+    if (ids.length > MAX_BATCH) errors.push(`一次最多 ${MAX_BATCH} 場，現在有 ${ids.length} 場，請分批送`);
+    for (const id of ids) {
+      if (!/^[a-z0-9-]{6,80}$/.test(id)) errors.push(`活動代號的格式不對：「${id}」`);
+      else if (!known(id)) errors.push(`找不到活動代號「${id}」`);
+    }
+    if (!takedown && !series && !jothon) errors.push('系列、揪松主辦、拿掉三項至少要改一項');
+    if (errors.length) return { ok: false, kind, errors };
+    const note = `${ref}（批次）：${(f.reason ?? '').replace(/\s+/g, ' ').slice(0, 200)}`;
+    const files = [];
+    for (const id of ids) files.push(await editOne(id, { set: {}, series, jothon, takedown }, note));
+    return doneBatch(issue, ids, files, { ...(series ?? {}), ...(jothon ?? {}) }, takedown, f.reason);
   }
 
   // 新增活動
@@ -269,6 +317,37 @@ async function done(kind, issue, files, changes, takedown, reason, id) {
   return {
     ok: true, kind, files,
     title: `${kind === 'edit' ? '修改' : '新增'}：${issue.title.replace(/^(修改|新增)[:：]\s*/, '')}`.slice(0, 120),
+    body: lines.join('\n'),
+  };
+}
+
+// 批次的 PR 內文：每場一列，只列真的有變的欄位；值本來就一樣的收在最後，不佔審核的注意力
+async function doneBatch(issue, ids, files, changes, takedown, reason) {
+  const keys = Object.keys(changes);
+  const lines = [`由 #${issue.number} 自動產生（批次修改，${ids.length} 場），送出的人：${await author(issue)}`, ''];
+  const what = [...keys.map((k) => `${FIELD_NAME[k]}改成「${show(k, changes[k])}」`), ...(takedown ? ['**從行事曆上拿掉**'] : [])];
+  lines.push(`**要做的事**：${what.join('、')}`, '');
+  if (takedown) lines.push('### ⚠️ 要求從行事曆上拿掉', '', `合併後下面 ${ids.length} 場會從網站與所有訂閱日曆消失（資料仍保留，\`hidden\` 改回 false 就恢復）。`, '');
+
+  const rows = [], same = [], warn = [];
+  for (const id of ids) {
+    const cur = await current(id);
+    const link = `[${(cur?.title ?? id).replace(/[|[\]]/g, ' ')}](${SITE}/events/${id}/)`;
+    const changed = keys.filter((k) => !cur || show(k, cur[k]) !== show(k, changes[k]));
+    if (!changed.length && !(takedown && !cur?.hidden)) { same.push(link); continue; }
+    const cells = keys.map((k) => (changed.includes(k) ? `${cur ? show(k, cur[k]) : '？'} → **${show(k, changes[k])}**` : '（不變）'));
+    rows.push(`| ${cur?.date_start ?? ''} | ${link} | ${cells.join(' | ')} |`);
+    if (cur?.hidden && !takedown) warn.push(`${link} 目前是**下架**狀態，改了也不會顯示`);
+  }
+  if (rows.length) {
+    lines.push(`| 日期 | 活動 | ${keys.map((k) => FIELD_NAME[k]).join(' | ')} |`, `|---|---|${keys.map(() => '---|').join('')}`, ...rows.sort(), '');
+  }
+  if (same.length) lines.push('<details><summary>' + `${same.length} 場本來就是這個值，檔案只多記一筆理由` + '</summary>', '', ...same.map((s) => `- ${s}`), '', '</details>', '');
+  if (warn.length) lines.push('### 合併前請注意', '', ...warn.map((w) => `- ${w}`), '');
+  lines.push(`**理由**：${(reason ?? '').replace(/\n+/g, ' ').slice(0, 1000)}`, '', '---', '合併後網站與訂閱日曆幾分鐘內更新。不採用的話直接關掉這個 PR。', '', `Closes #${issue.number}`);
+  return {
+    ok: true, kind: 'batch', files,
+    title: `批次修改 ${ids.length} 場：${issue.title.replace(/^批次修改[:：]\s*/, '') || what.join('、').replace(/\*/g, '')}`.slice(0, 120),
     body: lines.join('\n'),
   };
 }

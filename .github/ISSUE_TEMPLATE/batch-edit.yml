@@ -1,0 +1,38 @@
+name: 批次修改（管理員）
+description: 一次改多場活動的系列、揪松主辦，或一起拿掉。只有 repo 的協作者送出才會開 PR；請從網站活動列表的管理模式進來。
+title: "批次修改："
+labels: ["批次修改"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **只有 repo 的協作者（有寫入權限）送出的才會自動開 PR**，其他人送出的會被擋下來。一般修改請用活動頁的「修改這筆」。
+        只能改系列、揪松主辦、拿掉三項；地點、時間這些共筆上有的內容請改共筆，或一筆一筆修改。
+  - type: textarea
+    id: event_ids
+    attributes:
+      label: 活動代號（一行一個）
+      description: 活動頁網址 /events/ 後面那一段，例如 2026-11-08-543cc9
+    validations:
+      required: true
+  - type: input
+    id: series
+    attributes:
+      label: 系列
+      description: 系列代號或名稱，例如 hackathon（大松）、ai-monday；不屬於任何系列寫 none；不改就留空。完整清單見 config/series.json
+  - type: input
+    id: jothon
+    attributes:
+      label: 揪松主辦
+      description: 寫「是」或「不是」；不改就留空
+  - type: input
+    id: takedown
+    attributes:
+      label: 要不要從行事曆上拿掉？
+      description: 要一起拿掉就寫「請拿掉」；不用就留空
+  - type: textarea
+    id: reason
+    attributes:
+      label: 為什麼要改
+    validations:
+      required: true
