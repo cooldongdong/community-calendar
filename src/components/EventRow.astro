@@ -17,6 +17,7 @@ const text = [e.title, e.venue, e.address, e.host, e.series_label, ...e.cities, 
 <article
   class:list={['row', { cancelled: e.cancelled }]}
   data-row
+  data-id={e.id}
   data-when={isPast(e) ? 'past' : 'upcoming'}
   data-jothon={e.jothon ? '1' : '0'}
   data-series={e.series ?? ''}

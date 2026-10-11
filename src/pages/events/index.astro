@@ -1,7 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 import EventRow from '../../components/EventRow.astro';
-import { getEvents, href, isPast, monthKey } from '../../lib/data';
+import { REPO, getEvents, href, isPast, monthKey } from '../../lib/data';
 import { SERIES } from '../../../scripts/facets.mjs';
 
 const all = (await getEvents()).filter((e) => !e.hidden);
@@ -76,6 +76,47 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
     <nav class="timeline" aria-label="時間軸" data-timeline></nav>
     </div>
   </section>
+
+  <!-- 管理模式（網址加 ?admin=1）：勾選多場活動一次改系列、揪松主辦或拿掉。
+       這不是權限控管，只是不讓一般訪客看到勾選框；真正的門檻在 issue 轉 PR 時檢查送出的人是不是 repo 協作者 -->
+  <div class="admin-bar" data-admin-bar data-repo={REPO} hidden>
+    <span class="sel"><strong data-sel-count>0</strong> 場已選</span>
+    <button type="button" class="btn" data-sel-visible>全選目前顯示的</button>
+    <button type="button" class="btn" data-sel-clear>清除</button>
+    <button type="button" class="btn primary" data-batch-open>批次修改…</button>
+    <span class="msg" data-bar-msg aria-live="polite"></span>
+    <button type="button" class="btn link" data-admin-exit>離開管理模式</button>
+  </div>
+  <dialog class="batch" data-batch>
+    <form data-batch-form>
+      <h2>批次修改 <span data-batch-n></span> 場</h2>
+      <p class="muted small">只能改這三項，沒有要改的保持「不改」。地點、時間這些共筆上有的內容請改共筆。送出後只有 repo 協作者的 issue 會自動開 PR。</p>
+      <label class="field">
+        <span class="l">系列</span>
+        <select name="series">
+          <option value="">不改</option>
+          {SERIES.map(([slug, label]) => <option value={slug}>{label}</option>)}
+          <option value="none">不屬於任何系列</option>
+        </select>
+      </label>
+      <fieldset class="field">
+        <legend class="l">揪松主辦</legend>
+        <label><input type="radio" name="jothon" value="" checked /> 不改</label>
+        <label><input type="radio" name="jothon" value="是" /> 是</label>
+        <label><input type="radio" name="jothon" value="不是" /> 不是</label>
+      </fieldset>
+      <label class="check"><input type="checkbox" name="takedown" /> 全部從行事曆上拿掉</label>
+      <label class="field">
+        <span class="l">為什麼要改</span>
+        <textarea name="reason" rows="3" required></textarea>
+      </label>
+      <p class="err" data-batch-err hidden></p>
+      <div class="actions">
+        <button type="button" class="btn" data-batch-cancel>取消</button>
+        <button type="submit" class="btn primary">到 GitHub 送出</button>
+      </div>
+    </form>
+  </dialog>
 
 </Base>
 
@@ -176,6 +217,112 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
   form.addEventListener('change', (ev) => { if (ev.target !== jump) apply(); });
   apply();
 
+  // ---------- 管理模式：批次修改 ----------
+  // ?admin=1 打開、?admin=0 關掉，會記在這台瀏覽器
+  const ADMIN_KEY = 'cc-admin';
+  const store = (v?: boolean) => {
+    try {
+      if (v === undefined) return localStorage.getItem(ADMIN_KEY) === '1';
+      v ? localStorage.setItem(ADMIN_KEY, '1') : localStorage.removeItem(ADMIN_KEY);
+    } catch {}
+    return !!v;
+  };
+  const adminParam = params.get('admin');
+  const admin = adminParam === '1' ? store(true) : adminParam === '0' ? store(false) : store();
+  if (admin) setupAdmin();
+
+  function setupAdmin() {
+    const bar = document.querySelector<HTMLElement>('[data-admin-bar]')!;
+    const dialog = document.querySelector<HTMLDialogElement>('[data-batch]')!;
+    const bform = document.querySelector<HTMLFormElement>('[data-batch-form]')!;
+    const err = document.querySelector<HTMLElement>('[data-batch-err]')!;
+    const selCount = document.querySelector<HTMLElement>('[data-sel-count]')!;
+    const picked = new Set<string>();
+    const titles = new Map<string, string>();
+    bar.hidden = false;
+    document.body.classList.add('admin');
+
+    for (const r of rows) {
+      const id = r.dataset.id!;
+      titles.set(id, r.querySelector('h3')?.textContent?.trim() ?? id);
+      const box = document.createElement('label');
+      box.className = 'pick';
+      box.innerHTML = '<input type="checkbox" />';
+      box.title = '選這場';
+      const input = box.querySelector('input')!;
+      input.dataset.pick = id;
+      input.setAttribute('aria-label', `選擇：${titles.get(id)}`);
+      r.querySelector('.meta')!.prepend(box);
+    }
+    const sync = () => {
+      document.querySelectorAll<HTMLInputElement>('[data-pick]').forEach((i) => (i.checked = picked.has(i.dataset.pick!)));
+      selCount.textContent = String(picked.size);
+    };
+    document.addEventListener('change', (ev) => {
+      const t = ev.target as HTMLInputElement;
+      if (!t.dataset?.pick) return;
+      t.checked ? picked.add(t.dataset.pick) : picked.delete(t.dataset.pick);
+      sync();
+    });
+    // 「目前顯示的」＝篩選後看得到的：列本身、所在月份、所在清單都沒被藏起來
+    const visible = () => rows.filter((r) => !r.hidden && !r.closest<HTMLElement>('[data-month]')!.hidden && !r.closest<HTMLElement>('[data-list]')!.hidden);
+    bar.querySelector('[data-sel-visible]')!.addEventListener('click', () => { visible().forEach((r) => picked.add(r.dataset.id!)); sync(); });
+    bar.querySelector('[data-sel-clear]')!.addEventListener('click', () => { picked.clear(); sync(); });
+    bar.querySelector('[data-admin-exit]')!.addEventListener('click', () => { store(false); location.reload(); });
+    bar.querySelector('[data-batch-open]')!.addEventListener('click', () => {
+      if (!picked.size) { flash('還沒有勾選任何活動'); return; }
+      document.querySelector('[data-batch-n]')!.textContent = String(picked.size);
+      err.hidden = true;
+      dialog.showModal();
+    });
+    dialog.querySelector('[data-batch-cancel]')!.addEventListener('click', () => dialog.close());
+
+    const msg = bar.querySelector<HTMLElement>('[data-bar-msg]')!;
+    let msgTimer: number | undefined;
+    function flash(text: string) {
+      msg.textContent = text;
+      clearTimeout(msgTimer);
+      msgTimer = window.setTimeout(() => (msg.textContent = ''), 2500);
+    }
+
+    // GitHub 預填網址太長會失敗（約 8 KB），超過就請他分批。場數上限跟 scripts/issue-to-pr.mjs 的 MAX_BATCH 一致
+    const MAX_URL = 8000, MAX_IDS = 300;
+    bform.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const d = new FormData(bform);
+      const series = String(d.get('series') ?? '');
+      const jothon = String(d.get('jothon') ?? '');
+      const takedown = d.get('takedown') === 'on';
+      const reason = String(d.get('reason') ?? '').trim();
+      const ids = [...picked].sort();
+      const problem = !series && !jothon && !takedown ? '系列、揪松主辦、拿掉至少要改一項。' : !reason ? '請寫一下為什麼要改。' : null;
+      err.hidden = !problem; err.textContent = problem ?? '';
+      if (problem) return;
+
+      const what = [
+        series && `系列→${bform.querySelector<HTMLSelectElement>('[name=series]')!.selectedOptions[0].textContent}`,
+        jothon && `揪松主辦→${jothon}`,
+        takedown && '拿掉',
+      ].filter(Boolean).join('、');
+      const q = new URLSearchParams({ template: 'batch-edit.yml', title: `批次修改：${what}（${ids.length} 場）`, event_ids: ids.join('\n') });
+      if (series) q.set('series', series);
+      if (jothon) q.set('jothon', jothon);
+      if (takedown) q.set('takedown', '請拿掉');
+      q.set('reason', reason);
+      const url = `${bar.dataset.repo}/issues/new?${q}`;
+      if (url.length > MAX_URL || ids.length > MAX_IDS) {
+        const idsLen = new URLSearchParams({ x: ids.join('\n') }).toString().length - 2;
+        const fit = Math.min(MAX_IDS, Math.floor((MAX_URL - (url.length - idsLen)) / (idsLen / ids.length)));
+        err.hidden = false;
+        err.textContent = `一次選太多了（${ids.length} 場），請分批送，一批 ${fit} 場以內。`;
+        return;
+      }
+      window.open(url, '_blank', 'noopener');
+      dialog.close();
+    });
+    sync();
+  }
+
 </script>
 
 <style>
@@ -226,5 +373,47 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
   .month-title { margin: 28px 0 0; font-size: .95rem; color: var(--muted); font-weight: 600; }
   .past-title { margin: 56px 0 0; font-size: 1.1rem; }
   .empty { padding: 40px 0; text-align: center; }
+
+  /* 管理模式 */
+  :global(body.admin) { padding-bottom: 96px; }
+  :global(.pick) { display: inline-flex; align-items: center; cursor: pointer; }
+  :global(.pick input) { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+  .admin-bar {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 10;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px);
+    padding: 10px 14px; border-radius: var(--r-md); border: 1px solid var(--line);
+    background: var(--surface); box-shadow: var(--shadow); font-size: .875rem;
+  }
+  .admin-bar[hidden] { display: none; }
+  .sel { margin-right: 4px; }
+  .msg { color: var(--warn); }
+  .msg:empty { display: none; }
+  .btn {
+    display: inline-flex; align-items: center; min-height: 34px; padding: 0 12px; border-radius: var(--r-md);
+    border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: .85rem; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.link { border-color: transparent; color: var(--muted); }
+
+  .batch {
+    width: min(480px, calc(100vw - 32px)); padding: 24px; border-radius: var(--r-md); border: 1px solid var(--line);
+    background: var(--bg); color: var(--text);
+  }
+  .batch::backdrop { background: rgb(0 0 0 / .4); }
+  .batch h2 { margin: 0 0 8px; font-size: 1.15rem; }
+  .batch form { display: grid; gap: 14px; }
+  .batch .small { margin: 0; font-size: .85rem; }
+  .batch .field { display: flex; flex-direction: column; gap: 6px; border: 0; padding: 0; margin: 0; }
+  .batch fieldset.field { flex-direction: row; flex-wrap: wrap; gap: 6px 16px; }
+  .batch fieldset legend { width: 100%; margin-bottom: 6px; }
+  .batch .l { font-size: .875rem; font-weight: 600; }
+  .batch select, .batch textarea {
+    width: 100%; padding: 9px 12px; border-radius: var(--r-md); border: 1px solid var(--line);
+    background: var(--surface); color: var(--text); font: inherit; font-size: .95rem; height: auto;
+  }
+  .batch .check { font-size: .9rem; }
+  .batch .err { margin: 0; color: var(--warn); }
+  .batch .actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 </style>

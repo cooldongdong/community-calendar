@@ -86,7 +86,7 @@ function validate(f, errors) {
   return v;
 }
 
-const MAX_BATCH = 300;
+const MAX_BATCH = 300; // 網站上 src/pages/events/index.astro 的 MAX_IDS 跟著這個
 
 // AI Monday 的活動不在這個 repo，代號查不到檔案也收
 const known = (id) => id.startsWith('aimonday-') || existsSync(path.join(ROOT, 'events', `${id}.json`)) || existsSync(path.join(ROOT, 'manual', `${id}.json`));
