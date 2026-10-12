@@ -12,6 +12,15 @@ export const PREVIEW = !!import.meta.env.PUBLIC_PREVIEW;
 export const CONTACT_EMAIL = site.contact_email;
 export const SOURCE_URL = 'https://g0v.hackmd.io/@jothon/event';
 
+// 還在共筆上的活動，連到共筆上那一段：網址帶 text fragment（#:~:text=第一行），瀏覽器會捲過去並標出來。
+// 第一行去掉 Markdown 記號才會跟畫面上的字一樣；對不到或瀏覽器不支援時，就是打開共筆最上面
+export const sourceLink = (e: { in_source: boolean; raw?: string | null }) => {
+  const line = e.in_source ? e.raw?.split('\n')[0] : undefined;
+  const text = line?.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|__|~~|`/g, '').replace(/\s+/g, ' ').trim();
+  // 「-」「,」「&」在 text fragment 裡有特別意思，要編碼
+  return text ? `${SOURCE_URL}#:~:text=${encodeURIComponent(text).replace(/-/g, '%2D')}` : SOURCE_URL;
+};
+
 export interface SubSession { name: string; date: string | null; start_time: string | null; end_time: string | null; venue: string | null }
 export interface Event {
   id: string; source: string; source_url: string;
