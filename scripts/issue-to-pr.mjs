@@ -232,6 +232,22 @@ async function current(id) {
   return r;
 }
 
+// events/ 與 manual/ 全部讀一次就留著：批次拿掉時每一場都要找同一天的活動
+let everything;
+async function allEvents() {
+  if (everything) return everything;
+  const { readdir } = await import('node:fs/promises');
+  everything = [];
+  for (const dir of ['events', 'manual']) {
+    if (!existsSync(path.join(ROOT, dir))) continue;
+    for (const f of await readdir(path.join(ROOT, dir))) {
+      const r = await readJson(`${dir}/${f}`);
+      if (r) everything.push(r);
+    }
+  }
+  return everything;
+}
+
 async function author(issue) {
   const login = issue.user?.login;
   const relation = {
@@ -295,15 +311,7 @@ async function done(kind, issue, files, changes, takedown, reason, id) {
     if (ev.description?.length) lines.push(`| 說明 | ${ev.description.join(' ').replace(/\|/g, '\\|').slice(0, 300)} |`);
     lines.push('');
     // 同一天已經有的活動：最常見的問題是重複送
-    const { readdir } = await import('node:fs/promises');
-    const same = [];
-    for (const dir of ['events', 'manual']) {
-      if (!existsSync(path.join(ROOT, dir))) continue;
-      for (const f of await readdir(path.join(ROOT, dir))) {
-        const r = await readJson(`${dir}/${f}`);
-        if (r?.date_start === ev.date_start && r.id !== ev.id) same.push(r);
-      }
-    }
+    const same = (await allEvents()).filter((r) => r.date_start === ev.date_start && r.id !== ev.id);
     if (same.length) {
       lines.push(`**同一天已經有的活動**（${same.length} 場，看看是不是重複）：`, ...same.map((r) => `- [${r.title}](${SITE}/events/${r.id}/)`), '');
     } else {
@@ -331,19 +339,27 @@ async function doneBatch(issue, ids, files, changes, takedown, reason) {
   lines.push(`**要做的事**：${what.join('、')}`, '');
   if (takedown) lines.push('### ⚠️ 要求從行事曆上拿掉', '', `合併後下面 ${ids.length} 場會從網站與所有訂閱日曆消失（資料仍保留，\`hidden\` 改回 false 就恢復）。`, '');
 
-  const rows = [], same = [], warn = [];
+  const rows = [], same = [], warn = [], gone = [];
   for (const id of ids) {
     const cur = await current(id);
-    const link = `[${(cur?.title ?? id).replace(/[|[\]]/g, ' ')}](${SITE}/events/${id}/)`;
+    const link = `[${(cur?.title ?? id).replace(/[|[\]*]/g, ' ')}](${SITE}/events/${id}/)`;
+    // 拿掉的多半是「共筆已移除」的：附上同一天共筆上還在的活動，改名重貼的一眼就看得出來
+    if (takedown && cur) {
+      const still = cur.date_start ? (await allEvents()).filter((r) => r.date_start === cur.date_start && r.id !== id && r.in_source !== false) : [];
+      const where = cur.in_source === false ? `共筆上已經沒有${cur.removed_from_source ? `（${cur.removed_from_source} 移除）` : ''}` : '共筆上還在';
+      gone.push(`- ${link}：${where}。${still.length ? `同一天共筆上還有 ${still.map((r) => `[${r.title.replace(/[|[\]*]/g, ' ')}](${SITE}/events/${r.id}/)`).join('、')}` : '同一天共筆上沒有別的活動'}`);
+    }
     const changed = keys.filter((k) => !cur || show(k, cur[k]) !== show(k, changes[k]));
     if (!changed.length && !(takedown && !cur?.hidden)) { same.push(link); continue; }
     const cells = keys.map((k) => (changed.includes(k) ? `${cur ? show(k, cur[k]) : '？'} → **${show(k, changes[k])}**` : '（不變）'));
-    rows.push(`| ${cur?.date_start ?? ''} | ${link} | ${cells.join(' | ')} |`);
+    rows.push(`| ${[cur?.date_start ?? '', link, ...cells].join(' | ')} |`);
     if (cur?.hidden && !takedown) warn.push(`${link} 目前是**下架**狀態，改了也不會顯示`);
   }
   if (rows.length) {
-    lines.push(`| 日期 | 活動 | ${keys.map((k) => FIELD_NAME[k]).join(' | ')} |`, `|---|---|${keys.map(() => '---|').join('')}`, ...rows.sort(), '');
+    const head = ['日期', '活動', ...keys.map((k) => FIELD_NAME[k])];
+    lines.push(`| ${head.join(' | ')} |`, `|${head.map(() => '---|').join('')}`, ...rows.sort(), '');
   }
+  if (gone.length) lines.push('<details><summary>' + `要拿掉的 ${gone.length} 場：在不在共筆上、同一天還有什麼` + '</summary>', '', ...gone.sort(), '', '</details>', '');
   if (same.length) lines.push('<details><summary>' + `${same.length} 場本來就是這個值，檔案只多記一筆理由` + '</summary>', '', ...same.map((s) => `- ${s}`), '', '</details>', '');
   if (warn.length) lines.push('### 合併前請注意', '', ...warn.map((w) => `- ${w}`), '');
   lines.push(`**理由**：${(reason ?? '').replace(/\n+/g, ' ').slice(0, 1000)}`, '', '---', '合併後網站與訂閱日曆幾分鐘內更新。不採用的話直接關掉這個 PR。', '', `Closes #${issue.number}`);
