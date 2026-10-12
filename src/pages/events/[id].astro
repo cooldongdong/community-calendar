@@ -69,23 +69,44 @@ const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i
       data-when={tentative(e) ? `${e.date_start}・講者邀約中` : formatWhen(e)} data-where={e.venue ?? (e.online ? '線上' : '')} data-tags={shareTags.join('|')}>
       <summary>分享</summary>
       <div class="menu">
-        <div class="group">
-          <button type="button" data-native hidden>分享到…</button>
-          <button type="button" data-copy-link>複製連結</button>
-        </div>
-        <div class="group qr-group">
-          <div class="qr" set:html={qr} />
-          <button type="button" data-qr-png>下載 QR code</button>
-        </div>
-        <div class="group">
-          <p class="label">下載分享圖</p>
-          <button type="button" data-card="square">正方形（貼文）</button>
-          <button type="button" data-card="story">直式（限時動態）</button>
-        </div>
+        <button type="button" data-native hidden>分享到…</button>
+        <button type="button" data-copy-link>複製連結</button>
+        <button type="button" data-qr-open>顯示 QR code</button>
+        <button type="button" data-card-open>分享圖…</button>
         <p class="done" data-share-msg aria-live="polite"></p>
       </div>
     </details>
   </div>
+
+  <!-- 滿版 QR code：在講台上投影或給現場的人掃 -->
+  <dialog class="qr-full" data-qr-full aria-label="QR code">
+    <button type="button" class="x" data-close aria-label="關閉">✕</button>
+    <p class="qr-title">{e.title}</p>
+    <div class="qr" set:html={qr} />
+    <p class="qr-url">{pageUrl.replace(/^https?:\/\//, '')}</p>
+    <div class="qr-actions">
+      <button type="button" class="btn" data-fullscreen hidden>全螢幕</button>
+      <button type="button" class="btn" data-qr-png>下載 QR code</button>
+    </div>
+  </dialog>
+
+  <!-- 分享圖：先看到長什麼樣子，再決定要分享、複製還是下載 -->
+  <dialog class="card-dlg" data-card-dlg aria-label="分享圖">
+    <div class="card-head">
+      <div class="seg" role="group" aria-label="尺寸">
+        <button type="button" data-kind="square" aria-pressed="true">正方形・貼文</button>
+        <button type="button" data-kind="story" aria-pressed="false">直式・限時動態</button>
+      </div>
+      <button type="button" class="x" data-close aria-label="關閉">✕</button>
+    </div>
+    <div class="card-preview"><img data-card-img alt="分享圖預覽" /></div>
+    <div class="card-actions">
+      <span class="done" data-card-msg aria-live="polite"></span>
+      <button type="button" class="btn" data-card-share hidden>分享…</button>
+      <button type="button" class="btn" data-card-copy>複製圖片</button>
+      <button type="button" class="btn primary" data-card-download>下載</button>
+    </div>
+  </dialog>
 
   {e.cancelled && <p class="notice">這場活動已停辦。</p>}
 
@@ -231,13 +252,24 @@ const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i
 
     // QR code：把頁面上的 SVG 畫進 canvas
     const qrImage = () => new Promise<HTMLImageElement>((ok, fail) => {
-      const svg = share.querySelector('.qr svg')!.outerHTML;
+      const svg = document.querySelector('[data-qr-full] .qr svg')!.outerHTML;
       const img = new Image();
       img.onload = () => ok(img);
       img.onerror = fail;
       img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
     });
-    share.querySelector('[data-qr-png]')!.addEventListener('click', async () => {
+    // 滿版 QR code。能全螢幕的瀏覽器多一顆「全螢幕」，投影時連瀏覽器的框都不要
+    const qrFull = document.querySelector<HTMLDialogElement>('[data-qr-full]')!;
+    const fsBtn = qrFull.querySelector<HTMLButtonElement>('[data-fullscreen]')!;
+    fsBtn.hidden = !document.fullscreenEnabled;
+    fsBtn.addEventListener('click', () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {}));
+    qrFull.addEventListener('close', () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); });
+    share.querySelector('[data-qr-open]')!.addEventListener('click', () => { share.open = false; qrFull.showModal(); });
+    // 點 QR code 以外的地方也關掉
+    qrFull.addEventListener('click', (ev) => { if (!(ev.target as Element).closest('.qr, button')) qrFull.close(); });
+    document.querySelectorAll<HTMLButtonElement>('dialog [data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog')!.close()));
+
+    qrFull.querySelector('[data-qr-png]')!.addEventListener('click', async () => {
       const c = Object.assign(document.createElement('canvas'), { width: 1024, height: 1024 });
       const x = c.getContext('2d')!;
       x.imageSmoothingEnabled = false;
@@ -246,8 +278,7 @@ const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i
     });
 
     // 分享圖：跟連結預覽圖同一套版面（src/lib/og.ts），加上 QR code。正方形 1080×1080、直式 1080×1920
-    share.querySelectorAll<HTMLButtonElement>('[data-card]').forEach((btn) => btn.addEventListener('click', async () => {
-      const story = btn.dataset.card === 'story';
+    async function drawCard(story: boolean) {
       const W = 1080, H = story ? 1920 : 1080;
       const font = `"Noto Sans TC", system-ui, sans-serif`;
       const text = [d.title, d.when, d.where, d.tags, 'g0v 社群行事曆 掃描看活動資訊'].join('');
@@ -321,9 +352,47 @@ const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i
         if (d.where) { x.font = `400 34px ${font}`; x.fillStyle = '#5d5d68'; x.fillText(fit(d.where, infoW), L, bottom); }
       }
 
-      c.toBlob((b) => b && save(b, `${d.id}-${story ? 'story' : 'square'}.png`), 'image/png');
-      say('已下載');
-    }));
+      return new Promise<Blob>((ok) => c.toBlob((b) => ok(b!), 'image/png'));
+    }
+
+    // 分享圖的預覽視窗：切尺寸就重畫；分享（手機）、複製圖片、下載都用同一張
+    const dlg = document.querySelector<HTMLDialogElement>('[data-card-dlg]')!;
+    const img = dlg.querySelector<HTMLImageElement>('[data-card-img]')!;
+    const cardMsg = dlg.querySelector<HTMLElement>('[data-card-msg]')!;
+    const tell = (t: string) => { cardMsg.textContent = t; setTimeout(() => (cardMsg.textContent = ''), 3000); };
+    const cards = new Map<string, Promise<Blob>>();
+    let kind = 'square';
+    const current = () => {
+      if (!cards.has(kind)) cards.set(kind, drawCard(kind === 'story'));
+      return cards.get(kind)!;
+    };
+    const fileName = () => `${d.id}-${kind}.png`;
+    async function show() {
+      dlg.querySelectorAll<HTMLButtonElement>('[data-kind]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.kind === kind)));
+      dlg.dataset.kind = kind;
+      img.removeAttribute('src');
+      img.src = URL.createObjectURL(await current());
+    }
+    share.querySelector('[data-card-open]')!.addEventListener('click', () => { share.open = false; dlg.showModal(); show(); });
+    dlg.querySelectorAll<HTMLButtonElement>('[data-kind]').forEach((b) => b.addEventListener('click', () => { kind = b.dataset.kind!; show(); }));
+    dlg.addEventListener('click', (ev) => { if (ev.target === dlg) dlg.close(); });
+
+    dlg.querySelector('[data-card-download]')!.addEventListener('click', async () => { save(await current(), fileName()); tell('已下載'); });
+    dlg.querySelector('[data-card-copy]')!.addEventListener('click', async () => {
+      try {
+        // Safari 要在點擊當下就呼叫 write，所以傳 Promise 進去
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': current() })]);
+        tell('已複製圖片');
+      } catch { tell('這個瀏覽器不能複製圖片，請改用下載'); }
+    });
+    // 手機上可以直接把圖丟進 IG、LINE
+    const shareBtn = dlg.querySelector<HTMLButtonElement>('[data-card-share]')!;
+    const probe = new File([new Blob()], 'x.png', { type: 'image/png' });
+    shareBtn.hidden = !navigator.canShare?.({ files: [probe] });
+    shareBtn.addEventListener('click', async () => {
+      const file = new File([await current()], fileName(), { type: 'image/png' });
+      navigator.share({ files: [file], title: d.title, url: d.url }).catch(() => {});
+    });
   }
 </script>
 
@@ -348,9 +417,40 @@ const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i
   .pop .menu button { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--r-sm); background: none; color: var(--text); font: inherit; font-size: .9rem; text-align: left; cursor: pointer; }
   .pop .menu button:hover { background: var(--surface-2); }
   .pop .menu button[hidden] { display: none; }
-  .qr-group { display: flex; flex-direction: column; align-items: center; }
-  .qr { width: 160px; margin: 6px auto 0; }
-  .qr :global(svg) { display: block; width: 100%; height: auto; border-radius: var(--r-sm); }
+  .qr :global(svg) { display: block; width: 100%; height: auto; }
+  .x { position: absolute; top: 16px; right: 16px; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgb(0 0 0 / .06); color: inherit; font-size: 1rem; cursor: pointer; }
+
+  /* 滿版 QR code：一律白底黑字，投影最清楚 */
+  .qr-full {
+    width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 24px; border: 0;
+    background: #fff; color: #18181b;
+  }
+  .qr-full[open] { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+  .qr-full::backdrop { background: #fff; }
+  .qr-full .qr { width: min(78vw, 64dvh); }
+  .qr-title { margin: 0; max-width: min(90vw, 900px); font-size: clamp(1.1rem, 3vw, 2rem); font-weight: 700; text-align: center; overflow-wrap: anywhere; }
+  .qr-url { margin: 0; font-size: clamp(.9rem, 2vw, 1.25rem); color: #5d5d68; overflow-wrap: anywhere; text-align: center; }
+  .qr-actions { display: flex; gap: 8px; }
+  .qr-full .btn { color: #18181b; border-color: #e1e1e6; background: #fff; cursor: pointer; font: inherit; font-size: .875rem; }
+  .qr-full .x { color: #18181b; }
+
+  /* 分享圖預覽 */
+  .card-dlg { width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg); color: var(--text); }
+  .card-dlg[open] { display: flex; flex-direction: column; gap: 12px; }
+  .card-dlg::backdrop { background: rgb(0 0 0 / .5); }
+  .card-head { position: relative; display: flex; align-items: center; min-height: 40px; padding-right: 48px; }
+  .card-head .x { top: 0; right: 0; }
+  .seg { display: inline-flex; padding: 3px; border-radius: var(--r-md); background: var(--surface-2); }
+  .seg button { padding: 6px 12px; border: 0; border-radius: var(--r-sm); background: none; color: var(--muted); font: inherit; font-size: .85rem; cursor: pointer; }
+  .seg button[aria-pressed='true'] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+  .card-preview { display: flex; justify-content: center; min-height: 0; flex: 1; }
+  .card-preview img { display: block; max-width: 100%; max-height: calc(100dvh - 200px); aspect-ratio: 1; object-fit: contain; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface-2); }
+  .card-dlg[data-kind='story'] .card-preview img { aspect-ratio: 9 / 16; }
+  .card-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+  .card-actions .done { margin: 0 auto 0 0; }
+  .card-actions .btn { cursor: pointer; font: inherit; font-size: .875rem; background: none; }
+  .card-actions .btn[hidden], .qr-actions .btn[hidden] { display: none; }
+  .card-actions .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .done { margin: 4px 10px; font-size: .8rem; color: var(--accent); }
   .done:empty { display: none; }
   .pop .menu a { display: block; padding: 8px 10px; border-radius: var(--r-sm); color: var(--text); text-decoration: none; font-size: .9rem; }
