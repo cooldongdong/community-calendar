@@ -49,11 +49,14 @@ const fullTitle = title ? `${title}｜g0v 社群行事曆` : 'g0v 社群行事�
       <slot />
     </main>
     <footer class="site-footer">
-      <div class="wrap">
-        <p>活動資料每天從 <a href={SOURCE_URL}>g0v 揪松團的活動共筆</a> 同步一次。共筆開放社群自由填寫，內容未經審核；共筆上被刪掉的活動，這裡仍會保留。</p>
-        <p>資料可直接取用：<a href={href('/events.json')}>events.json</a>。每一筆的修改紀錄在活動頁最下面，原始檔在 <a href={REPO}>GitHub</a>。</p>
-        <p>要<a href={href('/submit/')}>新增活動</a>，或活動頁的「修改這筆」回報錯誤、取消、不適合的內容，管理員看過後就會更新。</p>
-        <p>管理員：<a href={href('/events/?admin=1')}>進入管理模式</a>，一次改很多場的系列、揪松主辦或拿掉（<a href={`${REPO}/blob/main/docs/管理員手冊.md`}>怎麼用</a>）。這台瀏覽器會記住，之後直接開活動頁就是管理模式。</p>
+      <div class="wrap foot">
+        <p class="about">活動資料每天從 <a href={SOURCE_URL}>g0v 揪松團的活動共筆</a> 同步。共筆開放社群自由填寫，內容未經審核；共筆上刪掉的活動這裡仍會保留，有錯或不適合的，可以在活動頁按「修改這筆」回報。</p>
+        <nav class="foot-links" aria-label="其他連結">
+          <a href={href('/submit/')}>新增活動</a>
+          <a href={href('/events.json')}>資料 events.json</a>
+          <a href={REPO}>GitHub</a>
+          <a href={href('/events/?admin=1')} title="一次改很多場的系列、揪松主辦或拿掉">管理模式</a>
+        </nav>
       </div>
     </footer>
     <script>
@@ -194,7 +197,9 @@ const fullTitle = title ? `${title}｜g0v 社群行事曆` : 'g0v 社群行事�
 
   main { padding-top: 40px; padding-bottom: 80px; }
   .site-footer { border-top: 1px solid var(--line); color: var(--muted); font-size: .875rem; padding: 24px 0 40px; }
-  .site-footer p { margin: 4px 0; }
+  .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 32px; }
+  .about { margin: 0; max-width: 46em; line-height: 1.7; }
+  .foot-links { display: flex; flex-wrap: wrap; gap: 4px 20px; align-content: flex-start; }
   .site-footer a { color: var(--muted); }
   .site-footer a:hover { color: var(--text); }
 
