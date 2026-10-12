@@ -108,8 +108,8 @@ const sameDay = new Map(all.filter(vanishedEarly).map((e) => [e.id, all.filter((
         </select>
       </label>
       <button type="button" class="chip takedown" data-takedown aria-pressed="false">拿掉</button>
-      <button type="button" class="btn primary" data-batch-open disabled>送出…</button>
     </div>
+    <button type="button" class="btn primary send" data-batch-open disabled>送出…</button>
     <span class="msg" data-bar-msg aria-live="polite"></span>
   </div>
   <dialog class="batch" data-batch>
@@ -434,6 +434,17 @@ const sameDay = new Map(all.filter(vanishedEarly).map((e) => [e.id, all.filter((
   .seg input:checked + span { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
   .seg input:focus-visible + span { outline: 2px solid var(--accent); }
   .check { display: inline-flex; align-items: center; gap: 6px; font-size: .875rem; cursor: pointer; }
+  /* 手機：照格子排。時間切換一整行、兩個下拉選單各半、勾選框變成並排的按鈕 */
+  @media (max-width: 640px) {
+    .selects { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .seg { grid-column: 1 / -1; display: flex; }
+    .seg label { flex: 1; }
+    .seg span { display: block; text-align: center; }
+    .selects select { order: 1; width: 100%; min-width: 0; }
+    .selects .check { order: 2; justify-content: center; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+    .selects .check:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+    .selects .check input { position: absolute; opacity: 0; pointer-events: none; }
+  }
   select {
     height: 34px; padding: 0 10px; border-radius: var(--r-md); border: 1px solid var(--line);
     background: var(--surface); color: var(--text); font: inherit; font-size: .875rem; max-width: 100%;
@@ -519,9 +530,15 @@ const sameDay = new Map(all.filter(vanishedEarly).map((e) => [e.id, all.filter((
   /* 手機：工具列貼底、按鈕可以左右滑 */
   @media (max-width: 640px) {
     .admin-bar { left: 0; right: 0; bottom: 0; transform: none; width: auto; max-width: none; border-radius: 16px 16px 0 0; border-width: 1px 0 0; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); }
-    .bar-sel, .bar-actions { flex-basis: 100%; }
-    .bar-actions { overflow-x: auto; scrollbar-width: none; }
-    .bar-actions .primary { margin-left: auto; }
+    /* 兩行：上面「已選 N 場」與送出，下面三個動作平分寬度 */
+    .admin-bar { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+    .bar-actions { grid-column: 1 / -1; grid-row: 2; display: grid; grid-template-columns: 1fr 1.3fr .8fr; gap: 6px; }
+    .send { grid-column: 2; grid-row: 1; }
+    .msg { grid-column: 1 / -1; }
+    .chip { min-width: 0; padding: 0 2px 0 10px; justify-content: center; }
+    .chip .k { flex: none; }
+    .chip select { min-width: 0; flex: 1; padding: 0 2px; text-overflow: ellipsis; }
+    .chip.takedown { padding: 0 8px; }
   }
 
   .batch {
