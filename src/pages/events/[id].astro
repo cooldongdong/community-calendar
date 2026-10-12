@@ -91,8 +91,8 @@ const other = e.links.filter((u) => !links.some(([, v]) => v === u));
           <pre class="raw">{e.raw}</pre>
         </section>
       )}
+      <!-- 修改紀錄預設收起來：大部分人只想看活動本身，紀錄是給要確認資料來源的人看的 -->
       {(log.length > 0 || fixes.length > 0) && (
-        <!-- 預設收起來：大部分人只想看活動本身，紀錄是給要確認資料來源的人看的 -->
         <details id="history" class="history">
           <summary>修改紀錄<span class="count">{log.length} 筆{fixes.length > 0 && `・${fixes.length} 項修正`}</span></summary>
           {fixes.length > 0 && (
