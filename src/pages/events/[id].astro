@@ -127,7 +127,7 @@ const other = e.links.filter((u) => !links.some(([, v]) => v === u));
         </dl>
       ) : (
         <dl class="info small">
-          <dt>來源</dt><dd><a href={sourceLink(e)}>揪松團活動共筆</a>{e.in_source && <span class="muted">（點了直接跳到這筆）</span>}</dd>
+          <dt>來源</dt><dd><a href={sourceLink(e)}>揪松團活動共筆</a></dd>
           <dt>第一次看到</dt><dd class="mono">{e.first_seen}</dd>
           <dt>共筆上</dt><dd>{e.in_source ? '還在' : e.removed_from_source ? `${e.removed_from_source} 前已移除` : '已移除'}</dd>
           {e.hsiaothon && <><dt>小松果</dt><dd><span class="mono">{e.hsiaothon.year} No.{e.hsiaothon.no}</span>{e.hsiaothon.notes_url && <>・<a href={e.hsiaothon.notes_url}>成果共筆</a></>}</dd></>}
