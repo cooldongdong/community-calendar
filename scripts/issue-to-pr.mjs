@@ -154,7 +154,9 @@ export async function handle(issue) {
 // 管理員要知道的：這是哪一場（連到網站）、每個欄位從什麼改成什麼、誰送的、
 // 這場還在不在共筆上（在的話改共筆比較好）、新增的同一天有沒有已經有的、有沒有看起來不對的地方
 
-const SITE = 'https://g0v.github.io/community-calendar';
+// fork 上跑時連到 fork 自己的 GitHub Pages（預覽用），不然 PR 裡的連結看到的是正式站、還沒合併的樣子
+const [OWNER, NAME] = (process.env.GITHUB_REPOSITORY ?? 'g0v/community-calendar').split('/');
+const SITE = `https://${OWNER}.github.io/${NAME}`;
 const FIELD_NAME = {
   title: '活動名稱', date_start: '日期', date_end: '結束日期', start_time: '開始時間', end_time: '結束時間',
   venue: '地點', address: '地址', host: '主辦', signup_url: '報名網址', online_url: '線上參加網址',
