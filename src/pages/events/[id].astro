@@ -19,12 +19,13 @@ const fixes = [
   ...(typeof o.jothon === 'boolean' ? [`揪松主辦 → ${o.jothon ? '是' : '不是'}`] : []),
   ...Object.entries(o.set ?? {}).map(([k, v]) => `${NAMES[k] ?? k} → ${v}`),
 ];
+// 系列連到活動列表、只看這個系列（含過去的）
 const info = [
-  ['系列', e.series_label],
+  ['系列', e.series_label, e.series && href(`/events/?series=${e.series}&when=all`)],
   ['地點', e.venue],
   ['地址', e.address],
   ['主辦', e.host],
-].filter(([, v]) => v) as [string, string][];
+].filter(([, v]) => v) as [string, string, string?][];
 const links = [
   ['報名', e.signup_url],
   ['線上參加', e.online_url],
@@ -71,7 +72,7 @@ const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i
     <div>
       {info.length > 0 && (
         <dl class="info">
-          {info.map(([k, v]) => (<><dt>{k}</dt><dd>{v}</dd></>))}
+          {info.map(([k, v, to]) => (<><dt>{k}</dt><dd>{to ? <a href={to}>{v}</a> : v}</dd></>))}
         </dl>
       )}
       {(e.talks?.length ?? 0) > 0 && (
