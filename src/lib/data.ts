@@ -4,7 +4,11 @@ import { loadAiMonday, loadAll, resolve } from '../../scripts/resolve.mjs';
 import { execFileSync } from 'node:child_process';
 import site from '../../config/site.json' with { type: 'json' };
 
-export const REPO = 'https://github.com/g0v/community-calendar';
+// 預覽站建置時帶 PUBLIC_REPO=帳號/repo，網站上的「送出」就會開到那個測試用的 repo，不會掉進正式 repo。
+// issue 表單與 issue 觸發的 workflow 永遠用該 repo 預設分支的版本，所以要測新表單，測試 repo 的預設分支得是新版
+export const REPO = `https://github.com/${import.meta.env.PUBLIC_REPO || 'g0v/community-calendar'}`;
+// 預覽站：頂端加橫幅、不讓搜尋引擎收錄
+export const PREVIEW = !!import.meta.env.PUBLIC_PREVIEW;
 export const CONTACT_EMAIL = site.contact_email;
 export const SOURCE_URL = 'https://g0v.hackmd.io/@jothon/event';
 
