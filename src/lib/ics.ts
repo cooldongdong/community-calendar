@@ -14,50 +14,49 @@ import { type Event, href, tentative, vanishedEarly } from './data';
 
 export interface Feed { name: string; desc: string; filter: (e: Event) => boolean }
 
-export function buildIcs(events: Event[], feed: Feed, site: URL | undefined) {
-  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
-  const base = site ? new URL(href('/'), site).href : null;
+// 能不能放進日曆：日期確定到哪一天、沒下架；AI Monday 邀約中的不收（停辦的照收，標 CANCELLED）
+export const onCalendar = (e: Event) => !e.hidden && e.date_precision === 'day' && !!e.date_start && (!tentative(e) || e.cancelled);
 
-  const vevents = events
-    .filter((e) => !e.hidden && e.date_precision === 'day' && e.date_start && feed.filter(e))
-    .filter((e) => !tentative(e) || e.cancelled)
-    .flatMap((e) => {
-      const uid = e.aimonday_id ? `${e.aimonday_id}@aimonday.g0v` : `${e.id}@community-calendar.g0v`;
-      const page = base && `${base}events/${e.id}/`;
-      const desc = [
-        ...(e.talks ?? []).map((t) => `・${t.title ?? '講題待定'}${t.speakers.length ? `（${t.speakers.join('、')}）` : ''}`),
-        e.aimonday_url && `講題與影片：${e.aimonday_url}`,
-        e.signup_url && `報名：${e.signup_url}`,
-        e.online_url && `線上參加：${e.online_url}`,
-        e.notes_url && `共筆：${e.notes_url}`,
-        e.page_url && `活動頁：${e.page_url}`,
-        e.start_time && !e.end_time && '結束時間未定',
-        vanishedEarly(e) && `這場活動在 ${e.removed_from_source} 從揪松團的活動共筆上被移除，可能已取消，請向主辦單位確認。`,
-        page && `更多資訊：${page}`,
-      ].filter(Boolean).join('\n');
-      const location = [e.venue, e.address].filter(Boolean).join('／') || null;
-      const common = { desc, page, stamp, location, cancelled: e.cancelled };
+const now = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+const pageOf = (e: Event, site: URL | undefined) => (site ? `${new URL(href('/'), site).href}events/${e.id}/` : null);
 
-      const subs = e.sub_sessions.filter((s) => s.date);
-      if (subs.length) {
-        return subs.map((s, i) => vevent({
-          ...common, uid: uid.replace('@', `-${i + 1}@`), title: `${summary(e)}｜${s.name}`,
-          date: s.date!, end: null, start: s.start_time, finish: s.end_time, location: s.venue ?? location,
-        }));
-      }
-      return [vevent({ ...common, uid, title: summary(e), date: e.date_start!, end: e.date_end, start: e.start_time, finish: e.end_time })];
-    });
+// 一場活動在日曆上的樣子；有子場次的（大松分城市）每個子場次一筆。
+// single＝單獨加到自己行事曆的那一份：加進去之後不會更新，所以說明最後一行請他以網站為準
+function entries(e: Event, site: URL | undefined, single = false): V[] {
+  const uid = e.aimonday_id ? `${e.aimonday_id}@aimonday.g0v` : `${e.id}@community-calendar.g0v`;
+  const page = pageOf(e, site);
+  const desc = [
+    ...(e.talks ?? []).map((t) => `・${t.title ?? '講題待定'}${t.speakers.length ? `（${t.speakers.join('、')}）` : ''}`),
+    e.aimonday_url && `講題與影片：${e.aimonday_url}`,
+    e.signup_url && `報名：${e.signup_url}`,
+    e.online_url && `線上參加：${e.online_url}`,
+    e.notes_url && `共筆：${e.notes_url}`,
+    e.page_url && `活動頁：${e.page_url}`,
+    e.start_time && !e.end_time && '結束時間未定',
+    vanishedEarly(e) && `這場活動在 ${e.removed_from_source} 從揪松團的活動共筆上被移除，可能已取消，請向主辦單位確認。`,
+    page && (single ? `活動資訊可能有更新，以這裡為準：${page}` : `更多資訊：${page}`),
+  ].filter(Boolean).join('\n');
+  const location = [e.venue, e.address].filter(Boolean).join('／') || null;
+  const common = { desc, page, stamp: now(), location, cancelled: e.cancelled, label: null };
 
+  const subs = e.sub_sessions.filter((s) => s.date);
+  if (subs.length) {
+    return subs.map((s, i) => ({
+      ...common, uid: uid.replace('@', `-${i + 1}@`), title: `${summary(e)}｜${s.name}`, label: s.name,
+      date: s.date!, end: null, start: s.start_time, finish: s.end_time, location: s.venue ?? location,
+    }));
+  }
+  return [{ ...common, uid, title: summary(e), date: e.date_start!, end: e.date_end, start: e.start_time, finish: e.end_time }];
+}
+
+function calendar(head: string[], vevents: string[][]) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//g0v//community-calendar//ZH-TW',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    `X-WR-CALNAME:${text(feed.name)}`,
-    'X-WR-TIMEZONE:Asia/Taipei',
-    `X-WR-CALDESC:${text(feed.desc)}`,
-    'REFRESH-INTERVAL;VALUE=DURATION:PT12H',
+    ...head,
     // 台灣沒有日光節約時間，一段 STANDARD 就夠
     'BEGIN:VTIMEZONE', 'TZID:Asia/Taipei',
     'BEGIN:STANDARD', 'DTSTART:19700101T000000', 'TZOFFSETFROM:+0800', 'TZOFFSETTO:+0800', 'TZNAME:CST', 'END:STANDARD',
@@ -68,9 +67,35 @@ export function buildIcs(events: Event[], feed: Feed, site: URL | undefined) {
   return new Response(lines.map(fold).join('\r\n') + '\r\n', { headers: { 'Content-Type': 'text/calendar; charset=utf-8' } });
 }
 
+export function buildIcs(events: Event[], feed: Feed, site: URL | undefined) {
+  return calendar(
+    [`X-WR-CALNAME:${text(feed.name)}`, 'X-WR-TIMEZONE:Asia/Taipei', `X-WR-CALDESC:${text(feed.desc)}`, 'REFRESH-INTERVAL;VALUE=DURATION:PT12H'],
+    events.filter((e) => onCalendar(e) && feed.filter(e)).flatMap((e) => entries(e, site).map(vevent)),
+  );
+}
+
+// 單獨加一場（或一個子場次）到自己的行事曆：不帶日曆名稱與更新頻率，匯入時就是一筆活動
+export const singleCount = (e: Event) => entries(e, undefined).length;
+export function eventIcs(e: Event, site: URL | undefined, session?: number) {
+  const all = entries(e, site, true);
+  return calendar([], (session === undefined ? all : [all[session]]).map(vevent));
+}
+
+// 「加到 Google 日曆」的網址，每個子場次一個。Google 一定要有結束時間：沒寫結束的就給同一個時間
+export function googleLinks(e: Event, site: URL | undefined) {
+  return entries(e, site, true).map((v) => {
+    const dates = v.start
+      ? `${compact(v.date)}T${compact(v.start)}00/${compact(v.date)}T${compact(v.finish ?? v.start)}00`
+      : `${compact(v.date)}/${compact(nextDay(v.end ?? v.date))}`;
+    const q = new URLSearchParams({ action: 'TEMPLATE', text: v.title, dates, ctz: 'Asia/Taipei', details: v.desc });
+    if (v.location) q.set('location', v.location);
+    return { label: v.label, url: `https://calendar.google.com/calendar/render?${q}` };
+  });
+}
+
 const summary = (e: Event) => (vanishedEarly(e) ? `（共筆已移除）${e.title}` : e.title);
 
-interface V { cancelled: boolean; uid: string; stamp: string; title: string; date: string; end: string | null; start: string | null; finish: string | null; desc: string; page: string | null; location: string | null }
+interface V { label: string | null; cancelled: boolean; uid: string; stamp: string; title: string; date: string; end: string | null; start: string | null; finish: string | null; desc: string; page: string | null; location: string | null }
 function vevent(v: V) {
   // 有開始時間：當天的時段；只寫開始沒寫結束，就只給開始（不替它編一個結束時間）。
   // 沒有時間：全天，跨天的就到最後一天
@@ -94,7 +119,7 @@ function vevent(v: V) {
 const compact = (s: string) => s.replace(/[-:]/g, '');
 const nextDay = (date: string) => new Date(Date.parse(`${date}T00:00:00Z`) + 864e5).toISOString().slice(0, 10);
 // TEXT 值的跳脫：反斜線、分號、逗號、換行
-const text = (s: string) => s.replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+const text = (s: string) => s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
 
 // 每行最多 75 bytes，續行以一個空白開頭。中文一字 3 bytes，要以字為單位切，不能切在字中間
 function fold(line: string) {
