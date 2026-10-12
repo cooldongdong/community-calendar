@@ -21,14 +21,17 @@ concurrency:
 
 jobs:
   to-pr:
-    if: contains(github.event.issue.labels.*.name, '修改活動') || contains(github.event.issue.labels.*.name, '新增活動')
+    if: contains(github.event.issue.labels.*.name, '修改活動') || contains(github.event.issue.labels.*.name, '新增活動') || contains(github.event.issue.labels.*.name, '批次修改')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # GH_TOKEN：批次修改要查送出的人是不是 repo 協作者；查不到就不開 PR
       - run: node scripts/issue-to-pr.mjs "$GITHUB_EVENT_PATH"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: 開或更新 PR
         env:

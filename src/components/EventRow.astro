@@ -1,8 +1,9 @@
 ---
 import { href, isPast, tentative, vanishedEarly, type Event } from '../lib/data';
 
-interface Props { event: Event }
-const { event: e } = Astro.props;
+// sameDay：共筆已移除的活動，同一天共筆上還在的活動標題（只有管理模式看得到，幫忙判斷是不是改名重貼）
+interface Props { event: Event; sameDay?: string[] }
+const { event: e, sameDay } = Astro.props;
 const WEEK = '日一二三四五六';
 const d = e.date_start;
 const day = d ? Number(d.slice(8)) : null;
@@ -17,11 +18,13 @@ const text = [e.title, e.venue, e.address, e.host, e.series_label, ...e.cities, 
 <article
   class:list={['row', { cancelled: e.cancelled }]}
   data-row
+  data-id={e.id}
   data-when={isPast(e) ? 'past' : 'upcoming'}
   data-jothon={e.jothon ? '1' : '0'}
   data-series={e.series ?? ''}
   data-cities={e.cities.join(' ')}
   data-online={e.online ? '1' : '0'}
+  data-vanished={vanishedEarly(e) ? '1' : '0'}
   data-text={text}
 >
   <a class="date" href={href(`/events/${e.id}/`)}>
@@ -40,6 +43,7 @@ const text = [e.title, e.venue, e.address, e.host, e.series_label, ...e.cities, 
     <h3><a href={href(`/events/${e.id}/`)}>{e.title}</a></h3>
     {e.sub_sessions.length > 0 && <p class="sub muted">{e.sub_sessions.map((s) => s.name).join('・')}</p>}
     {(e.talks?.length ?? 0) > 0 && <p class="sub muted">{e.talks!.map((t) => t.title).filter(Boolean).join('、')}</p>}
+    {sameDay && <p class="sub same-day">{sameDay.length ? `同一天共筆上還有：${sameDay.join('、')}` : '同一天共筆上沒有別的活動'}</p>}
   </div>
 </article>
 
@@ -56,4 +60,6 @@ const text = [e.title, e.venue, e.address, e.host, e.series_label, ...e.cities, 
   h3 a:hover { color: var(--accent); }
   .cancelled h3 a { text-decoration: line-through; color: var(--muted); }
   .sub { margin: 4px 0 0; font-size: .875rem; }
+  .same-day { color: var(--warn); }
+  :global(body:not(.admin)) .same-day { display: none; }
 </style>

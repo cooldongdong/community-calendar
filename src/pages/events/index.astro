@@ -1,7 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 import EventRow from '../../components/EventRow.astro';
-import { getEvents, href, isPast, monthKey } from '../../lib/data';
+import { REPO, getEvents, href, isPast, monthKey, vanishedEarly } from '../../lib/data';
 import { SERIES } from '../../../scripts/facets.mjs';
 
 const all = (await getEvents()).filter((e) => !e.hidden);
@@ -16,10 +16,14 @@ const cityCount = new Map<string, number>();
 for (const e of all) for (const c of e.cities) cityCount.set(c, (cityCount.get(c) ?? 0) + 1);
 const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
 
+// 共筆已移除的活動：同一天共筆上還在的有哪些。管理模式拿來判斷是取消、誤刪，還是改名重貼
+const sameDay = new Map(all.filter(vanishedEarly).map((e) => [e.id, all.filter((o) => o.id !== e.id && o.in_source && o.date_start === e.date_start).map((o) => o.title)]));
+
 ---
 <Base title="活動" description="搜尋 g0v 社群的活動：黑客松、AI Monday、各地小聚與講座，含過去的活動。">
   <div class="title-row">
     <h1 class="page-title">活動</h1>
+    <span class="admin-tag" data-admin-only hidden>管理模式・<button type="button" class="linkish" data-admin-exit>離開</button></span>
     <a class="add" href={href('/submit/')}>＋ 新增活動</a>
   </div>
 
@@ -36,6 +40,7 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
           <label><input type="radio" name="when" value="all" /><span>全部</span></label>
         </div>
         <label class="check"><input type="checkbox" name="jothon" value="1" /><span>只看揪松主辦</span></label>
+        <label class="check" data-admin-only hidden><input type="checkbox" name="vanished" value="1" /><span>只看共筆已移除</span></label>
         <select name="series" aria-label="系列">
           <option value="">所有系列</option>
           {seriesOpts.map(([v, l]) => <option value={v}>{l}</option>)}
@@ -47,6 +52,7 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
         </select>
       </div>
       <div class="count-row">
+        <label class="sel-all" data-admin-only hidden><input type="checkbox" data-sel-all /><span data-sel-all-label></span></label>
         <p class="count muted" aria-live="polite" data-count></p>
         <select class="jump" aria-label="跳到月份" data-jump hidden></select>
       </div>
@@ -58,7 +64,7 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
       {groups(upcoming).map(([m, list]) => (
         <section data-month={m} id={`upcoming-${m}`}>
           <h3 class="month-title">{monthLabel(m)}</h3>
-          {list.map((e) => <EventRow event={e} />)}
+          {list.map((e) => <EventRow event={e} sameDay={sameDay.get(e.id)} />)}
         </section>
       ))}
     </div>
@@ -67,7 +73,7 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
       {groups(past).map(([m, list]) => (
         <section data-month={m} id={`past-${m}`}>
           <h3 class="month-title">{monthLabel(m)}</h3>
-          {list.map((e) => <EventRow event={e} />)}
+          {list.map((e) => <EventRow event={e} sameDay={sameDay.get(e.id)} />)}
         </section>
       ))}
     </div>
@@ -76,6 +82,56 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
     <nav class="timeline" aria-label="時間軸" data-timeline></nav>
     </div>
   </section>
+
+  <!-- 管理模式（網址加 ?admin=1）：點活動選取（Shift＋點選一段），在底部的工具列選要改成什麼，一次送出。
+       這不是權限控管，只是不讓一般訪客看到這些；真正的門檻在 issue 轉 PR 時檢查送出的人是不是 repo 協作者 -->
+  <div class="admin-bar" data-admin-bar data-repo={REPO} hidden>
+    <div class="bar-sel">
+      <button type="button" class="icon" data-sel-clear aria-label="全部取消選取" title="全部取消選取（Esc）" hidden>✕</button>
+      <span data-sel-text aria-live="polite"></span>
+    </div>
+    <div class="bar-actions">
+      <label class="chip">
+        <span class="k">系列</span>
+        <select data-act="series" aria-label="系列改成">
+          <option value="">不改</option>
+          {SERIES.map(([slug, label]) => <option value={slug}>{label}</option>)}
+          <option value="none">不屬於任何系列</option>
+        </select>
+      </label>
+      <label class="chip">
+        <span class="k">揪松主辦</span>
+        <select data-act="jothon" aria-label="揪松主辦改成">
+          <option value="">不改</option>
+          <option value="是">是</option>
+          <option value="不是">不是</option>
+        </select>
+      </label>
+      <button type="button" class="chip takedown" data-takedown aria-pressed="false">拿掉</button>
+    </div>
+    <button type="button" class="btn primary send" data-batch-open disabled>送出…</button>
+    <span class="msg" data-bar-msg aria-live="polite"></span>
+  </div>
+  <dialog class="batch" data-batch>
+    <form data-batch-form>
+      <h2 data-batch-summary></h2>
+      <p class="takedown-note" data-batch-takedown hidden>合併後這些活動會從網站與所有訂閱日曆消失（資料仍保留，之後可以恢復）。</p>
+      <details class="picked-list">
+        <summary>看選了哪些</summary>
+        <ul data-batch-list></ul>
+      </details>
+      <label class="field">
+        <span class="l">為什麼要改</span>
+        <textarea name="reason" rows="3" required placeholder="例如：共筆已移除，確認是取消了"></textarea>
+      </label>
+      <p class="muted small">會打開一張填好的 GitHub issue，按 Submit 後自動開 PR，管理員合併才生效。只有 repo 協作者送的會開 PR。</p>
+      <p class="err" data-batch-err hidden></p>
+      <div class="actions">
+        <button type="button" class="btn" data-batch-cancel>取消</button>
+        <button type="submit" class="btn primary">到 GitHub 送出</button>
+      </div>
+    </form>
+  </dialog>
 
 </Base>
 
@@ -97,6 +153,19 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
     else if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) el.value = v;
   }
 
+  // 管理模式：?admin=1 打開、?admin=0 關掉，會記在這台瀏覽器
+  const ADMIN_KEY = 'cc-admin';
+  const store = (v?: boolean) => {
+    try {
+      if (v === undefined) return localStorage.getItem(ADMIN_KEY) === '1';
+      v ? localStorage.setItem(ADMIN_KEY, '1') : localStorage.removeItem(ADMIN_KEY);
+    } catch {}
+    return !!v;
+  };
+  const adminParam = params.get('admin');
+  const admin = adminParam === '1' ? store(true) : adminParam === '0' ? store(false) : store();
+  let afterApply = () => {};
+
   function apply() {
     const data = new FormData(form);
     const q = String(data.get('q') ?? '').trim().toLowerCase();
@@ -105,8 +174,9 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
     const jothon = data.get('jothon') === '1';
     const series = String(data.get('series') ?? '');
     const city = String(data.get('city') ?? '');
-    // 有搜尋字時，「近期」也一起搜過去的——找不到過去的活動是最常見的落空
-    const showPast = when === 'past' || when === 'all' || (terms.length > 0 && when === '');
+    const vanished = admin && data.get('vanished') === '1';
+    // 有搜尋字時，「近期」也一起搜過去的——找不到過去的活動是最常見的落空。「共筆已移除」也是，多半是過去的
+    const showPast = when === 'past' || when === 'all' || ((terms.length > 0 || vanished) && when === '');
     const showUpcoming = when !== 'past';
 
     let n = 0;
@@ -115,6 +185,7 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
         && (!jothon || r.dataset.jothon === '1')
         && (!series || r.dataset.series === series)
         && (!city || (city === 'online' ? r.dataset.online === '1' : r.dataset.cities!.split(' ').includes(city)))
+        && (!vanished || r.dataset.vanished === '1')
         && terms.every((t) => r.dataset.text!.includes(t));
       r.hidden = !ok;
       if (ok) n++;
@@ -122,9 +193,9 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
     document.querySelectorAll<HTMLElement>('[data-month]').forEach((m) => (m.hidden = !m.querySelector('[data-row]:not([hidden])')));
     lists.upcoming.hidden = !showUpcoming;
     lists.past.hidden = !showPast || !lists.past.querySelector('[data-row]:not([hidden])');
-    pastTitle.hidden = !showUpcoming; // 只看過去的時候不需要這個分隔標題
+    pastTitle.hidden = !showUpcoming || !lists.upcoming.querySelector('[data-row]:not([hidden])'); // 上面沒有近期的活動時，不需要這個分隔標題
     empty.hidden = n > 0;
-    count.textContent = q || jothon || series || city || when ? `${n} 場活動` : '';
+    count.textContent = q || jothon || series || city || when || vanished ? `${n} 場活動` : '';
 
     // 表單 → 網址（預設值不寫，網址保持乾淨）
     const out = new URLSearchParams();
@@ -133,8 +204,10 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
     if (jothon) out.set('jothon', '1');
     if (series) out.set('series', series);
     if (city) out.set('city', city);
+    if (vanished) out.set('vanished', '1');
     history.replaceState(null, '', out.size ? `?${out}` : location.pathname);
     buildTimeline();
+    afterApply();
   }
 
   // 時間軸：依目前看得到的月份產生。寬螢幕是右邊一條，窄螢幕是「跳到月份」選單
@@ -176,6 +249,170 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
   form.addEventListener('change', (ev) => { if (ev.target !== jump) apply(); });
   apply();
 
+  if (admin) setupAdmin();
+
+  // ---------- 管理模式：批次修改 ----------
+  // 點活動選取、Shift＋點選一段、Esc 全部取消；在底部工具列選要改成什麼，確認後開一張填好的 GitHub issue
+  function setupAdmin() {
+    const bar = document.querySelector<HTMLElement>('[data-admin-bar]')!;
+    const dialog = document.querySelector<HTMLDialogElement>('[data-batch]')!;
+    const bform = document.querySelector<HTMLFormElement>('[data-batch-form]')!;
+    const err = document.querySelector<HTMLElement>('[data-batch-err]')!;
+    const selText = bar.querySelector<HTMLElement>('[data-sel-text]')!;
+    const clearBtn = bar.querySelector<HTMLButtonElement>('[data-sel-clear]')!;
+    const sendBtn = bar.querySelector<HTMLButtonElement>('[data-batch-open]')!;
+    const seriesSel = bar.querySelector<HTMLSelectElement>('[data-act="series"]')!;
+    const jothonSel = bar.querySelector<HTMLSelectElement>('[data-act="jothon"]')!;
+    const takedownBtn = bar.querySelector<HTMLButtonElement>('[data-takedown]')!;
+    const selAll = document.querySelector<HTMLInputElement>('[data-sel-all]')!;
+    const selAllLabel = document.querySelector<HTMLElement>('[data-sel-all-label]')!;
+    const picked = new Set<string>();
+    const byId = new Map(rows.map((r) => [r.dataset.id!, r]));
+    const titleOf = (id: string) => byId.get(id)?.querySelector('h3')?.textContent?.trim() ?? id;
+    bar.hidden = false;
+    document.querySelectorAll<HTMLElement>('[data-admin-only]').forEach((el) => (el.hidden = false));
+    document.body.classList.add('admin');
+
+    // 每列前面一個勾勾。用 role=checkbox 的 span，點擊統一由列處理
+    for (const r of rows) {
+      const box = document.createElement('span');
+      box.className = 'pick';
+      box.setAttribute('role', 'checkbox');
+      box.setAttribute('aria-checked', 'false');
+      box.setAttribute('aria-label', `選擇：${titleOf(r.dataset.id!)}`);
+      box.tabIndex = 0;
+      r.prepend(box);
+    }
+
+    // 「目前顯示的」＝篩選後看得到的：列本身、所在月份、所在清單都沒被藏起來
+    const visible = () => rows.filter((r) => !r.hidden && !r.closest<HTMLElement>('[data-month]')!.hidden && !r.closest<HTMLElement>('[data-list]')!.hidden);
+    const takedown = () => takedownBtn.getAttribute('aria-pressed') === 'true';
+    const hasAction = () => !!seriesSel.value || !!jothonSel.value || takedown();
+
+    function sync() {
+      for (const r of rows) {
+        const on = picked.has(r.dataset.id!);
+        r.classList.toggle('picked', on);
+        r.querySelector('.pick')!.setAttribute('aria-checked', String(on));
+      }
+      const vis = visible();
+      const k = vis.filter((r) => picked.has(r.dataset.id!)).length;
+      const off = picked.size - k;
+      selText.textContent = `已選 ${picked.size} 場${off ? `（${off} 場不在目前的篩選裡）` : ''}`;
+      clearBtn.hidden = !picked.size;
+      selAll.checked = vis.length > 0 && k === vis.length;
+      selAll.indeterminate = k > 0 && k < vis.length;
+      selAll.disabled = !vis.length;
+      selAllLabel.textContent = k ? `已選 ${k}／${vis.length}` : `全選目前顯示的 ${vis.length} 場`;
+      for (const sel of [seriesSel, jothonSel]) sel.closest('.chip')!.classList.toggle('on', !!sel.value);
+      sendBtn.disabled = !picked.size || !hasAction();
+      sendBtn.title = !picked.size ? '先選活動' : !hasAction() ? '先選要改成什麼' : '';
+    }
+    afterApply = sync;
+
+    const set = (id: string, on: boolean) => (on ? picked.add(id) : picked.delete(id));
+    let anchor: string | null = null;
+    function toggle(r: HTMLElement, range: boolean) {
+      const id = r.dataset.id!;
+      const on = !picked.has(id);
+      const vis = visible();
+      const i = anchor ? vis.findIndex((x) => x.dataset.id === anchor) : -1;
+      if (range && i >= 0) {
+        const j = vis.indexOf(r);
+        for (const x of vis.slice(Math.min(i, j), Math.max(i, j) + 1)) set(x.dataset.id!, on);
+      } else set(id, on);
+      anchor = id;
+      sync();
+    }
+
+    const listsWrap = document.querySelector<HTMLElement>('.lists')!;
+    // Shift＋點的時候不要順便反白一段文字
+    listsWrap.addEventListener('mousedown', (ev) => { if (ev.shiftKey && (ev.target as Element).closest('[data-row]')) ev.preventDefault(); });
+    listsWrap.addEventListener('click', (ev) => {
+      const r = (ev.target as Element).closest<HTMLElement>('[data-row]');
+      if (!r) return;
+      const link = (ev.target as Element).closest('a');
+      // 連結：還沒開始選的時候照常打開；開始選了之後點到哪都算選取。Cmd／Ctrl＋點永遠是開新分頁
+      if (link && (ev.metaKey || ev.ctrlKey || (!picked.size && !(ev.target as Element).closest('.pick')))) return;
+      ev.preventDefault();
+      toggle(r, ev.shiftKey);
+    });
+    listsWrap.addEventListener('keydown', (ev) => {
+      const box = (ev.target as Element).closest('.pick');
+      if (!box || (ev.key !== ' ' && ev.key !== 'Enter')) return;
+      ev.preventDefault();
+      toggle(box.closest<HTMLElement>('[data-row]')!, ev.shiftKey);
+    });
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && !dialog.open && picked.size) { picked.clear(); anchor = null; sync(); }
+    });
+
+    // 勾勾本身的狀態不算數，一律從 picked 重畫
+    selAll.addEventListener('change', () => {
+      const vis = visible();
+      const all = vis.every((r) => picked.has(r.dataset.id!));
+      vis.forEach((r) => set(r.dataset.id!, !all));
+      sync();
+    });
+    clearBtn.addEventListener('click', () => { picked.clear(); anchor = null; sync(); });
+    seriesSel.addEventListener('change', sync);
+    jothonSel.addEventListener('change', sync);
+    takedownBtn.addEventListener('click', () => { takedownBtn.setAttribute('aria-pressed', String(!takedown())); sync(); });
+    document.querySelectorAll('[data-admin-exit]').forEach((b) => b.addEventListener('click', () => { store(false); location.reload(); }));
+
+    const msg = bar.querySelector<HTMLElement>('[data-bar-msg]')!;
+    let msgTimer: number | undefined;
+    function flash(text: string) {
+      msg.textContent = text;
+      clearTimeout(msgTimer);
+      msgTimer = window.setTimeout(() => (msg.textContent = ''), 4000);
+    }
+
+    const whatText = () => [
+      seriesSel.value && `系列→${seriesSel.selectedOptions[0].textContent}`,
+      jothonSel.value && `揪松主辦→${jothonSel.value}`,
+      takedown() && '拿掉',
+    ].filter(Boolean).join('、');
+
+    sendBtn.addEventListener('click', () => {
+      const ids = [...picked].sort();
+      document.querySelector('[data-batch-summary]')!.textContent = `${ids.length} 場：${whatText()}`;
+      document.querySelector<HTMLElement>('[data-batch-takedown]')!.hidden = !takedown();
+      const list = document.querySelector<HTMLElement>('[data-batch-list]')!;
+      list.replaceChildren(...ids.map((id) => Object.assign(document.createElement('li'), { textContent: `${id.slice(0, 10)}　${titleOf(id)}` })));
+      err.hidden = true;
+      dialog.showModal();
+    });
+    dialog.querySelector('[data-batch-cancel]')!.addEventListener('click', () => dialog.close());
+
+    // GitHub 預填網址太長會失敗（約 8 KB），超過就請他分批。場數上限跟 scripts/issue-to-pr.mjs 的 MAX_BATCH 一致
+    const MAX_URL = 8000, MAX_IDS = 300;
+    bform.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const reason = String(new FormData(bform).get('reason') ?? '').trim();
+      const ids = [...picked].sort();
+      if (!reason) { err.hidden = false; err.textContent = '請寫一下為什麼要改。'; return; }
+
+      const q = new URLSearchParams({ template: 'batch-edit.yml', title: `批次修改：${whatText()}（${ids.length} 場）`, event_ids: ids.join('\n') });
+      if (seriesSel.value) q.set('series', seriesSel.value);
+      if (jothonSel.value) q.set('jothon', jothonSel.value);
+      if (takedown()) q.set('takedown', '請拿掉');
+      q.set('reason', reason);
+      const url = `${bar.dataset.repo}/issues/new?${q}`;
+      if (url.length > MAX_URL || ids.length > MAX_IDS) {
+        const idsLen = new URLSearchParams({ x: ids.join('\n') }).toString().length - 2;
+        const fit = Math.min(MAX_IDS, Math.floor((MAX_URL - (url.length - idsLen)) / (idsLen / ids.length)));
+        err.hidden = false;
+        err.textContent = `一次選太多了（${ids.length} 場），請分批送，一批 ${fit} 場以內。`;
+        return;
+      }
+      window.open(url, '_blank', 'noopener');
+      dialog.close();
+      flash('已在新分頁開好 GitHub issue，按 Submit 才算送出');
+    });
+    sync();
+  }
+
 </script>
 
 <style>
@@ -197,6 +434,17 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
   .seg input:checked + span { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
   .seg input:focus-visible + span { outline: 2px solid var(--accent); }
   .check { display: inline-flex; align-items: center; gap: 6px; font-size: .875rem; cursor: pointer; }
+  /* 手機：照格子排。時間切換一整行、兩個下拉選單各半、勾選框變成並排的按鈕 */
+  @media (max-width: 640px) {
+    .selects { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .seg { grid-column: 1 / -1; display: flex; }
+    .seg label { flex: 1; }
+    .seg span { display: block; text-align: center; }
+    .selects select { order: 1; width: 100%; min-width: 0; }
+    .selects .check { order: 2; justify-content: center; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+    .selects .check:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+    .selects .check input { position: absolute; opacity: 0; pointer-events: none; }
+  }
   select {
     height: 34px; padding: 0 10px; border-radius: var(--r-md); border: 1px solid var(--line);
     background: var(--surface); color: var(--text); font: inherit; font-size: .875rem; max-width: 100%;
@@ -226,5 +474,95 @@ const cityOpts = [...cityCount].sort((a, b) => b[1] - a[1]).map(([c]) => c);
   .month-title { margin: 28px 0 0; font-size: .95rem; color: var(--muted); font-weight: 600; }
   .past-title { margin: 56px 0 0; font-size: 1.1rem; }
   .empty { padding: 40px 0; text-align: center; }
+
+  /* 管理模式 */
+  .filters [hidden] { display: none; }
+  .admin-tag { margin-left: auto; margin-right: 12px; font-size: .85rem; color: var(--muted); }
+  .linkish { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+  .sel-all { display: inline-flex; align-items: center; gap: 8px; font-size: .85rem; cursor: pointer; }
+  .sel-all input { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+  .sel-all + .count { margin-left: 4px; }
+
+  :global(body.admin) { padding-bottom: 140px; }
+  :global(body.admin .row) { grid-template-columns: 20px 4.5rem 1fr; gap: 14px; padding-inline: 10px; cursor: pointer; transition: background .12s; }
+  @media (min-width: 768px) { :global(body.admin .row) { grid-template-columns: 20px 6rem 1fr; gap: 24px; } }
+  :global(body.admin .row:hover) { background: var(--surface-2); }
+  :global(body.admin .row.picked) { background: var(--accent-soft); }
+  :global(.pick) {
+    width: 20px; height: 20px; margin-top: 6px; border-radius: 50%; border: 1.5px solid var(--muted);
+    display: grid; place-items: center; transition: background .12s, border-color .12s;
+  }
+  :global(.pick:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  :global(.row:hover .pick) { border-color: var(--accent); }
+  :global(.row.picked .pick) { background: var(--accent); border-color: var(--accent); }
+  :global(.row.picked .pick::after) { content: ''; width: 5px; height: 9px; margin-top: -2px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+
+  .admin-bar {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 10;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; width: max-content; max-width: calc(100vw - 32px);
+    padding: 10px 12px 10px 16px; border-radius: 14px; border: 1px solid var(--line);
+    background: var(--surface); box-shadow: 0 8px 30px rgb(0 0 0 / .18); font-size: .875rem;
+  }
+  .admin-bar[hidden] { display: none; }
+  .bar-sel { display: flex; align-items: center; gap: 8px; min-height: 34px; }
+  .bar-actions { display: flex; align-items: center; gap: 8px; }
+  .icon { width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--surface-2); color: var(--text); cursor: pointer; font-size: .8rem; }
+  .icon[hidden] { display: none; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 4px 0 12px; border-radius: 999px;
+    border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: .85rem; cursor: pointer; white-space: nowrap;
+  }
+  .chip .k { color: var(--muted); }
+  .chip select { height: 30px; border: 0; padding: 0 6px; background: transparent; color: var(--text); font-size: .85rem; cursor: pointer; }
+  .chip.on { background: var(--accent-soft); border-color: var(--accent); }
+  .chip.on .k, .chip.on select { color: var(--accent); font-weight: 600; }
+  .chip.takedown { padding: 0 14px; }
+  .chip.takedown[aria-pressed='true'] { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); font-weight: 600; }
+  .msg { flex-basis: 100%; color: var(--accent); font-size: .85rem; }
+  .msg:empty { display: none; }
+  .btn {
+    display: inline-flex; align-items: center; min-height: 34px; padding: 0 14px; border-radius: 999px;
+    border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: .85rem; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  /* 手機：工具列貼底、按鈕可以左右滑 */
+  @media (max-width: 640px) {
+    .admin-bar { left: 0; right: 0; bottom: 0; transform: none; width: auto; max-width: none; border-radius: 16px 16px 0 0; border-width: 1px 0 0; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); }
+    /* 兩行：上面「已選 N 場」與送出，下面三個動作平分寬度 */
+    .admin-bar { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+    .bar-actions { grid-column: 1 / -1; grid-row: 2; display: grid; grid-template-columns: 1fr 1.3fr .8fr; gap: 6px; }
+    .send { grid-column: 2; grid-row: 1; }
+    .msg { grid-column: 1 / -1; }
+    .chip { min-width: 0; padding: 0 2px 0 10px; justify-content: center; }
+    .chip .k { flex: none; }
+    .chip select { min-width: 0; flex: 1; padding: 0 2px; text-overflow: ellipsis; }
+    .chip.takedown { padding: 0 8px; }
+  }
+
+  .batch {
+    width: min(520px, calc(100vw - 32px)); padding: 24px; border-radius: 16px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--text);
+  }
+  .batch::backdrop { background: rgb(0 0 0 / .4); }
+  .batch h2 { margin: 0; font-size: 1.15rem; }
+  .batch form { display: grid; gap: 14px; }
+  .batch .small { margin: 0; font-size: .85rem; }
+  .takedown-note { margin: 0; padding: 10px 12px; border-radius: var(--r-md); background: var(--warn-soft); color: var(--warn); font-size: .9rem; }
+  .takedown-note[hidden] { display: none; }
+  .picked-list summary { cursor: pointer; font-size: .9rem; color: var(--muted); }
+  .picked-list ul { max-height: 200px; overflow-y: auto; margin: 8px 0 0; padding-left: 1.2em; font-size: .85rem; }
+  .batch .field { display: flex; flex-direction: column; gap: 6px; }
+  .batch .l { font-size: .875rem; font-weight: 600; }
+  .batch textarea {
+    width: 100%; padding: 9px 12px; border-radius: var(--r-md); border: 1px solid var(--line);
+    background: var(--surface); color: var(--text); font: inherit; font-size: .95rem;
+  }
+  .batch .err { margin: 0; color: var(--warn); }
+  .batch .actions { display: flex; justify-content: flex-end; gap: 8px; }
+  @media (max-width: 640px) {
+    .batch { width: 100%; max-width: none; margin: auto 0 0; border-radius: 16px 16px 0 0; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  }
 
 </style>

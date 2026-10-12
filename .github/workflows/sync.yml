@@ -3,6 +3,9 @@ name: 同步、建置、部署與資料檢查
 # 每天台灣 04:30 讀一次共筆：events/ 有變就 commit 回 main（這就是每一筆的修改紀錄），
 # 然後重建網站與日曆，再把要人看的地方同步成一張 issue。
 # 用 GITHUB_TOKEN push 的 commit 不會再觸發 workflow，所以不會自己跟自己打轉。
+#
+# 在 fork 上跑時只建置與部署（fork 自己的 GitHub Pages 就是預覽站）：不讀共筆、不 commit、不開資料檢查 issue，
+# 網站頂端掛預覽橫幅，「送出」開到 fork 自己。這樣在 fork 合併測試 PR，幾分鐘後就看得到結果。
 on:
   push:
     branches: [main]
@@ -32,12 +35,14 @@ jobs:
 
       # 同步失敗（例如共筆被整份清空）時不更新資料，但網站照樣用上一版建置，檢查結果照樣開 issue
       - id: sync
+        if: github.repository == 'g0v/community-calendar'
         run: node scripts/sync.mjs
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }} # 查備份最後更新時間用
 
       - name: 有變動就 commit
+        if: github.repository == 'g0v/community-calendar'
         run: |
           git add events
           if git diff --cached --quiet; then echo '資料沒有變動'; exit 0; fi
@@ -46,6 +51,10 @@ jobs:
           git push
 
       - run: npm run build
+        env:
+          SITE: https://${{ github.repository_owner }}.github.io
+          PUBLIC_REPO: ${{ github.repository }}
+          PUBLIC_PREVIEW: ${{ github.repository != 'g0v/community-calendar' && '1' || '' }}
       - run: cp report.json dist/report.json
         if: hashFiles('report.json') != ''
       - uses: actions/upload-pages-artifact@v3
@@ -53,7 +62,7 @@ jobs:
           path: dist
 
       - name: 資料檢查 issue
-        if: hashFiles('report.json') != ''
+        if: github.repository == 'g0v/community-calendar' && hashFiles('report.json') != ''
         run: bash scripts/data-check-issue.sh
         env:
           GH_TOKEN: ${{ github.token }}

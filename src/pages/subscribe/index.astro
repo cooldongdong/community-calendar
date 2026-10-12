@@ -1,6 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
-import { getEvents, href } from '../../lib/data';
+import { REPO, getEvents, href } from '../../lib/data';
 import { FEEDS, type FeedInfo } from '../../lib/feeds';
 
 // 訂閱名單在 config/feeds.json：前兩份是主要的（有 hint），其他列在下面
@@ -34,7 +34,7 @@ const google = (u: string) => `https://calendar.google.com/calendar/r?cid=${enco
 
   <section class="series">
     <h2>只訂揪松團的某個系列</h2>
-    <p class="muted">其他社群的活動多半有自己的公告管道，這裡只列揪松團自己辦的。想加一份訂閱，改 <a href="https://github.com/g0v/community-calendar/blob/main/config/feeds.json">config/feeds.json</a> 就好。</p>
+    <p class="muted">其他社群的活動多半有自己的公告管道，這裡只列揪松團自己辦的。想加一份訂閱，改 <a href={`${REPO}/blob/main/config/feeds.json`}>config/feeds.json</a> 就好。</p>
     <ul>
       {more.map((f) => (
         <li>

@@ -4,9 +4,29 @@ import { loadAiMonday, loadAll, resolve } from '../../scripts/resolve.mjs';
 import { execFileSync } from 'node:child_process';
 import site from '../../config/site.json' with { type: 'json' };
 
-export const REPO = 'https://github.com/g0v/community-calendar';
+// 預覽站建置時帶 PUBLIC_REPO=帳號/repo，網站上的「送出」就會開到那個測試用的 repo，不會掉進正式 repo。
+// issue 表單與 issue 觸發的 workflow 永遠用該 repo 預設分支的版本，所以要測新表單，測試 repo 的預設分支得是新版
+export const REPO = `https://github.com/${import.meta.env.PUBLIC_REPO || 'g0v/community-calendar'}`;
+// 預覽站：頂端加橫幅、不讓搜尋引擎收錄
+export const PREVIEW = !!import.meta.env.PUBLIC_PREVIEW;
 export const CONTACT_EMAIL = site.contact_email;
 export const SOURCE_URL = 'https://g0v.hackmd.io/@jothon/event';
+// 共筆的編輯畫面（左右分割）。HackMD 只認得標題的錨點，所以最多跳到那個月份（「2026.10」的錨點是 #202610）；
+// 編輯畫面裡的文字是打開後才畫出來的，text fragment 對不到，要靠使用者自己 Cmd／Ctrl＋F
+export const sourceEditLink = (e: { month_section?: string | null }) =>
+  `https://g0v.hackmd.io/N3EnvC7ATSG-r71zuleuyQ?both${e.month_section ? `#${e.month_section.replace(/\D/g, '')}` : ''}`;
+
+// 這場活動在共筆上的第一行，去掉 Markdown 記號（跟畫面上看到的字一樣）。不在共筆上的是 null
+export const sourceLine = (e: { in_source: boolean; raw?: string | null }) =>
+  (e.in_source && e.raw?.split('\n')[0].replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|__|~~|`/g, '').replace(/\s+/g, ' ').trim()) || null;
+
+// 還在共筆上的活動，連到共筆上那一段：網址帶 text fragment（#:~:text=第一行），瀏覽器會捲過去並標出來。
+// 對不到或瀏覽器不支援時，就是打開共筆最上面
+export const sourceLink = (e: { in_source: boolean; raw?: string | null }) => {
+  const text = sourceLine(e);
+  // 「-」「,」「&」在 text fragment 裡有特別意思，要編碼
+  return text ? `${SOURCE_URL}#:~:text=${encodeURIComponent(text).replace(/-/g, '%2D')}` : SOURCE_URL;
+};
 
 export interface SubSession { name: string; date: string | null; start_time: string | null; end_time: string | null; venue: string | null }
 export interface Event {

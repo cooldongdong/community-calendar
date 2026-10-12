@@ -1,6 +1,8 @@
 ---
 import Base from '../../layouts/Base.astro';
-import { editUrl, formatWhen, fromAiMonday, getEvents, historyOf, href, SOURCE_URL, tentative, vanishedEarly, type Event } from '../../lib/data';
+import QRCode from 'qrcode';
+import { googleLinks, onCalendar } from '../../lib/ics';
+import { editUrl, formatWhen, fromAiMonday, getEvents, historyOf, href, sourceLink, tentative, vanishedEarly, type Event } from '../../lib/data';
 
 // 下架的不產生頁面（網址會變成 404）
 export async function getStaticPaths() {
@@ -18,12 +20,13 @@ const fixes = [
   ...(typeof o.jothon === 'boolean' ? [`揪松主辦 → ${o.jothon ? '是' : '不是'}`] : []),
   ...Object.entries(o.set ?? {}).map(([k, v]) => `${NAMES[k] ?? k} → ${v}`),
 ];
+// 系列連到活動列表、只看這個系列（含過去的）
 const info = [
-  ['系列', e.series_label],
+  ['系列', e.series_label, e.series && href(`/events/?series=${e.series}&when=all`)],
   ['地點', e.venue],
   ['地址', e.address],
   ['主辦', e.host],
-].filter(([, v]) => v) as [string, string][];
+].filter(([, v]) => v) as [string, string, string?][];
 const links = [
   ['報名', e.signup_url],
   ['線上參加', e.online_url],
@@ -31,8 +34,14 @@ const links = [
   ['活動頁', e.page_url],
 ].filter(([, v]) => v) as [string, string][];
 const other = e.links.filter((u) => !links.some(([, v]) => v === u));
+// 加到自己的行事曆：Google 開預填好的新增畫面，Apple／Outlook 下載 .ics。有子場次的每個子場次各一組
+// 分享：QR code 建置時就畫好（SVG），分享圖在瀏覽器裡當場畫（見下面的 script）
+const pageUrl = new URL(href(`/events/${e.id}/`), Astro.site).href;
+const qr = await QRCode.toString(pageUrl, { type: 'svg', margin: 1, color: { dark: '#18181b', light: '#ffffff' } });
+const shareTags = [e.cancelled ? '停辦' : vanishedEarly(e) ? '共筆已移除' : '', e.jothon ? '揪松主辦' : '', e.series && e.series !== 'other-jothon' ? e.series_label ?? '' : ''].filter(Boolean);
+const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i, all) => ({ ...g, ics: href(`/events/${all.length > 1 ? `${e.id}-${i + 1}` : e.id}.ics`) })) : [];
 ---
-<Base title={e.title} description={`${formatWhen(e)}｜${e.venue ?? ''}`}>
+<Base title={e.title} description={`${formatWhen(e)}｜${e.venue ?? ''}`} image={new URL(href(`/events/${e.id}/og.png`), Astro.site).href}>
   <a class="back" href={href('/events/')}>← 所有活動</a>
   <div class="badges">
     {e.jothon && <span class="badge accent">揪松主辦</span>}
@@ -40,7 +49,64 @@ const other = e.links.filter((u) => !links.some(([, v]) => v === u));
     {vanishedEarly(e) && <span class="badge warn">共筆已移除</span>}
   </div>
   <h1 class="page-title">{e.title}</h1>
-  <p class="when mono">{tentative(e) ? `${e.date_start}・講者邀約中，時間未定` : formatWhen(e)}</p>
+  <div class="when-row">
+    <p class="when mono">{tentative(e) ? `${e.date_start}・講者邀約中，時間未定` : formatWhen(e)}</p>
+    {cal.length > 0 && (
+      <details class="pop" data-pop>
+        <summary>＋ 加到行事曆</summary>
+        <div class="menu">
+          {cal.map((c) => (
+            <div class="group">
+              {c.label && <p class="label">{c.label}</p>}
+              <a href={c.url} target="_blank" rel="noopener">Google 日曆</a>
+              <a href={c.ics}>Apple／Outlook（.ics）</a>
+            </div>
+          ))}
+        </div>
+      </details>
+    )}
+    <details class="pop" data-pop data-share data-id={e.id} data-url={pageUrl} data-title={e.title}
+      data-when={tentative(e) ? `${e.date_start}・講者邀約中` : formatWhen(e)} data-where={e.venue ?? (e.online ? '線上' : '')} data-tags={shareTags.join('|')}>
+      <summary>分享</summary>
+      <div class="menu">
+        <button type="button" data-native hidden>分享到…</button>
+        <button type="button" data-copy-link>複製連結</button>
+        <button type="button" data-qr-open>顯示 QR code</button>
+        <button type="button" data-card-open>分享圖…</button>
+        <p class="done" data-share-msg aria-live="polite"></p>
+      </div>
+    </details>
+  </div>
+
+  <!-- 滿版 QR code：在講台上投影或給現場的人掃 -->
+  <dialog class="qr-full" data-qr-full aria-label="QR code">
+    <button type="button" class="x" data-close aria-label="關閉">✕</button>
+    <p class="qr-title">{e.title}</p>
+    <div class="qr" set:html={qr} />
+    <p class="qr-url">{pageUrl.replace(/^https?:\/\//, '')}</p>
+    <div class="qr-actions">
+      <button type="button" class="btn" data-fullscreen hidden>全螢幕</button>
+      <button type="button" class="btn" data-qr-png>下載 QR code</button>
+    </div>
+  </dialog>
+
+  <!-- 分享圖：先看到長什麼樣子，再決定要分享、複製還是下載 -->
+  <dialog class="card-dlg" data-card-dlg aria-label="分享圖">
+    <div class="card-head">
+      <div class="seg" role="group" aria-label="尺寸">
+        <button type="button" data-kind="square" aria-pressed="true">正方形・貼文</button>
+        <button type="button" data-kind="story" aria-pressed="false">直式・限時動態</button>
+      </div>
+      <button type="button" class="x" data-close aria-label="關閉">✕</button>
+    </div>
+    <div class="card-preview"><img data-card-img alt="分享圖預覽" /></div>
+    <div class="card-actions">
+      <span class="done" data-card-msg aria-live="polite"></span>
+      <button type="button" class="btn" data-card-share hidden>分享…</button>
+      <button type="button" class="btn" data-card-copy>複製圖片</button>
+      <button type="button" class="btn primary" data-card-download>下載</button>
+    </div>
+  </dialog>
 
   {e.cancelled && <p class="notice">這場活動已停辦。</p>}
 
@@ -52,7 +118,7 @@ const other = e.links.filter((u) => !links.some(([, v]) => v === u));
     <div>
       {info.length > 0 && (
         <dl class="info">
-          {info.map(([k, v]) => (<><dt>{k}</dt><dd>{v}</dd></>))}
+          {info.map(([k, v, to]) => (<><dt>{k}</dt><dd>{to ? <a href={to}>{v}</a> : v}</dd></>))}
         </dl>
       )}
       {(e.talks?.length ?? 0) > 0 && (
@@ -127,7 +193,7 @@ const other = e.links.filter((u) => !links.some(([, v]) => v === u));
         </dl>
       ) : (
         <dl class="info small">
-          <dt>來源</dt><dd><a href={SOURCE_URL}>揪松團活動共筆</a></dd>
+          <dt>來源</dt><dd><a href={sourceLink(e)}>揪松團活動共筆</a></dd>
           <dt>第一次看到</dt><dd class="mono">{e.first_seen}</dd>
           <dt>共筆上</dt><dd>{e.in_source ? '還在' : e.removed_from_source ? `${e.removed_from_source} 前已移除` : '已移除'}</dd>
           {e.hsiaothon && <><dt>小松果</dt><dd><span class="mono">{e.hsiaothon.year} No.{e.hsiaothon.no}</span>{e.hsiaothon.notes_url && <>・<a href={e.hsiaothon.notes_url}>成果共筆</a></>}</dd></>}
@@ -155,12 +221,239 @@ const other = e.links.filter((u) => !links.some(([, v]) => v === u));
     if (d) d.open = true;
   });
   if (location.hash === '#history') document.querySelector<HTMLDetailsElement>('#history')?.setAttribute('open', '');
+
+  // 「加到行事曆」「分享」兩個小選單：點外面或按 Esc 收起來，一次只開一個
+  const pops = [...document.querySelectorAll<HTMLDetailsElement>('[data-pop]')];
+  document.addEventListener('click', (ev) => pops.forEach((p) => { if (!p.contains(ev.target as Node)) p.open = false; }));
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') pops.forEach((p) => (p.open = false)); });
+  pops.forEach((p) => p.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => (p.open = false))));
+
+  // ---------- 分享 ----------
+  const share = document.querySelector<HTMLDetailsElement>('[data-share]');
+  if (share) {
+    const d = share.dataset;
+    const msg = share.querySelector<HTMLElement>('[data-share-msg]')!;
+    const say = (t: string) => { msg.textContent = t; setTimeout(() => (msg.textContent = ''), 3000); };
+    const save = (blob: Blob, name: string) => {
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    };
+
+    // 手機上有系統的分享選單就用它（LINE、IG、訊息…）；電腦上通常沒有，只留「複製連結」
+    const native = share.querySelector<HTMLButtonElement>('[data-native]')!;
+    if (navigator.share) {
+      native.hidden = false;
+      native.addEventListener('click', () => navigator.share({ title: d.title, url: d.url }).catch(() => {}));
+    }
+    share.querySelector('[data-copy-link]')!.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(d.url!); say('已複製連結'); } catch { say(d.url!); }
+    });
+
+    // QR code：把頁面上的 SVG 畫進 canvas
+    const qrImage = () => new Promise<HTMLImageElement>((ok, fail) => {
+      const svg = document.querySelector('[data-qr-full] .qr svg')!.outerHTML;
+      const img = new Image();
+      img.onload = () => ok(img);
+      img.onerror = fail;
+      img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    });
+    // 滿版 QR code。能全螢幕的瀏覽器多一顆「全螢幕」，投影時連瀏覽器的框都不要
+    const qrFull = document.querySelector<HTMLDialogElement>('[data-qr-full]')!;
+    const fsBtn = qrFull.querySelector<HTMLButtonElement>('[data-fullscreen]')!;
+    fsBtn.hidden = !document.fullscreenEnabled;
+    fsBtn.addEventListener('click', () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {}));
+    qrFull.addEventListener('close', () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); });
+    share.querySelector('[data-qr-open]')!.addEventListener('click', () => { share.open = false; qrFull.showModal(); });
+    // 點 QR code 以外的地方也關掉
+    qrFull.addEventListener('click', (ev) => { if (!(ev.target as Element).closest('.qr, button')) qrFull.close(); });
+    document.querySelectorAll<HTMLButtonElement>('dialog [data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog')!.close()));
+
+    qrFull.querySelector('[data-qr-png]')!.addEventListener('click', async () => {
+      const c = Object.assign(document.createElement('canvas'), { width: 1024, height: 1024 });
+      const x = c.getContext('2d')!;
+      x.imageSmoothingEnabled = false;
+      x.drawImage(await qrImage(), 0, 0, 1024, 1024);
+      c.toBlob((b) => b && save(b, `${d.id}-qr.png`), 'image/png');
+    });
+
+    // 分享圖：跟連結預覽圖同一套版面（src/lib/og.ts），加上 QR code。正方形 1080×1080、直式 1080×1920
+    async function drawCard(story: boolean) {
+      const W = 1080, H = story ? 1920 : 1080;
+      const font = `"Noto Sans TC", system-ui, sans-serif`;
+      const text = [d.title, d.when, d.where, d.tags, 'g0v 社群行事曆 掃描看活動資訊'].join('');
+      // 網頁字型是用到才下載的，先把這張圖要用的字載好，不然會畫成系統字型
+      await Promise.all([document.fonts.load(`700 40px ${font}`, text), document.fonts.load(`400 40px ${font}`, text)]).catch(() => {});
+
+      const c = Object.assign(document.createElement('canvas'), { width: W, height: H });
+      const x = c.getContext('2d')!;
+      // 一律用淺色版，不跟著深色模式：圖會被貼到別的地方
+      x.fillStyle = '#f6f6f7'; x.fillRect(0, 0, W, H);
+      x.fillStyle = '#2f55d4'; x.fillRect(0, 0, 16, H);
+      const L = 80, R = W - 80, maxW = R - L;
+      let y = story ? 220 : 110;
+      x.textBaseline = 'alphabetic';
+
+      x.font = `700 34px ${font}`; x.fillStyle = '#18181b';
+      x.fillText('g0v 社群行事曆', L, y);
+      let tx = L + x.measureText('g0v 社群行事曆').width + 20;
+      for (const t of (d.tags ? d.tags.split('|') : [])) {
+        x.font = `700 28px ${font}`;
+        const w = x.measureText(t).width + 28;
+        const warn = t === '停辦' || t === '共筆已移除';
+        x.fillStyle = warn ? '#fdf1dc' : t === '揪松主辦' ? '#e7ecfc' : '#eeeef1';
+        x.beginPath(); x.roundRect(tx, y - 34, w, 46, 10); x.fill();
+        x.fillStyle = warn ? '#9a5b00' : t === '揪松主辦' ? '#2f55d4' : '#5d5d68';
+        x.fillText(t, tx + 14, y);
+        tx += w + 12;
+      }
+
+      // 標題：中文一個字一個字斷，英文以單字斷；最多 4 行（直式 6 行），超過加「…」
+      const size = (d.title!.length > 40 ? 64 : 80) * (story ? 1.1 : 1);
+      x.font = `700 ${size}px ${font}`; x.fillStyle = '#18181b';
+      const tokens = d.title!.match(/[A-Za-z0-9][\w\-.:'’@#/&]*|\s+|./gu) ?? [];
+      const lines: string[] = [];
+      let line = '';
+      // 標點不放在行首：跟著前一個字，寧可稍微超出一點
+      const punct = /^[,.;:!?、，。：；！？）」』】〕]/;
+      for (const tok of tokens) {
+        if (x.measureText(line + tok).width > maxW && line.trim() && !punct.test(tok)) { lines.push(line.trimEnd()); line = tok.trimStart(); }
+        else line += tok;
+      }
+      if (line.trim()) lines.push(line.trimEnd());
+      const max = story ? 6 : 4;
+      if (lines.length > max) { lines.length = max; lines[max - 1] = lines[max - 1].replace(/.$/u, '…'); }
+      y += story ? 260 : 170;
+      for (const l of lines) { x.fillText(l, L, y); y += size * 1.3; }
+
+      const img = await qrImage();
+      const fit = (s: string, w: number) => { let t = s; while (t && x.measureText(t).width > w) t = t.slice(0, -2) + '…'; return t; };
+      if (story) {
+        // 直式：日期、地點接在標題下面用整行寬度，QR code 放在左下，跟文字靠同一條線
+        y += 40;
+        x.font = `700 52px ${font}`; x.fillStyle = '#2f55d4';
+        x.fillText(fit(d.when!, maxW), L, y);
+        if (d.where) { y += 64; x.font = `400 40px ${font}`; x.fillStyle = '#5d5d68'; x.fillText(fit(d.where, maxW), L, y); }
+        const qrSize = 360, top = H - 220 - qrSize;
+        x.drawImage(img, L, top, qrSize, qrSize);
+        x.font = `400 30px ${font}`; x.fillStyle = '#5d5d68';
+        x.fillText('掃描看活動資訊', L, top + qrSize + 56);
+      } else {
+        // 正方形：日期、地點在左下，QR code 在右下
+        const qrSize = 220, bottom = H - 90;
+        x.drawImage(img, R - qrSize, bottom - qrSize, qrSize, qrSize);
+        x.font = `400 26px ${font}`; x.fillStyle = '#5d5d68'; x.textAlign = 'center';
+        x.fillText('掃描看活動資訊', R - qrSize / 2, bottom + 40);
+        x.textAlign = 'left';
+        const infoW = maxW - qrSize - 40;
+        x.font = `700 40px ${font}`; x.fillStyle = '#2f55d4';
+        x.fillText(fit(d.when!, infoW), L, bottom - (d.where ? 60 : 0));
+        if (d.where) { x.font = `400 34px ${font}`; x.fillStyle = '#5d5d68'; x.fillText(fit(d.where, infoW), L, bottom); }
+      }
+
+      return new Promise<Blob>((ok) => c.toBlob((b) => ok(b!), 'image/png'));
+    }
+
+    // 分享圖的預覽視窗：切尺寸就重畫；分享（手機）、複製圖片、下載都用同一張
+    const dlg = document.querySelector<HTMLDialogElement>('[data-card-dlg]')!;
+    const img = dlg.querySelector<HTMLImageElement>('[data-card-img]')!;
+    const cardMsg = dlg.querySelector<HTMLElement>('[data-card-msg]')!;
+    const tell = (t: string) => { cardMsg.textContent = t; setTimeout(() => (cardMsg.textContent = ''), 3000); };
+    const cards = new Map<string, Promise<Blob>>();
+    let kind = 'square';
+    const current = () => {
+      if (!cards.has(kind)) cards.set(kind, drawCard(kind === 'story'));
+      return cards.get(kind)!;
+    };
+    const fileName = () => `${d.id}-${kind}.png`;
+    async function show() {
+      dlg.querySelectorAll<HTMLButtonElement>('[data-kind]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.kind === kind)));
+      dlg.dataset.kind = kind;
+      img.removeAttribute('src');
+      img.src = URL.createObjectURL(await current());
+    }
+    share.querySelector('[data-card-open]')!.addEventListener('click', () => { share.open = false; dlg.showModal(); show(); });
+    dlg.querySelectorAll<HTMLButtonElement>('[data-kind]').forEach((b) => b.addEventListener('click', () => { kind = b.dataset.kind!; show(); }));
+    dlg.addEventListener('click', (ev) => { if (ev.target === dlg) dlg.close(); });
+
+    dlg.querySelector('[data-card-download]')!.addEventListener('click', async () => { save(await current(), fileName()); tell('已下載'); });
+    dlg.querySelector('[data-card-copy]')!.addEventListener('click', async () => {
+      try {
+        // Safari 要在點擊當下就呼叫 write，所以傳 Promise 進去
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': current() })]);
+        tell('已複製圖片');
+      } catch { tell('這個瀏覽器不能複製圖片，請改用下載'); }
+    });
+    // 手機上可以直接把圖丟進 IG、LINE
+    const shareBtn = dlg.querySelector<HTMLButtonElement>('[data-card-share]')!;
+    const probe = new File([new Blob()], 'x.png', { type: 'image/png' });
+    shareBtn.hidden = !navigator.canShare?.({ files: [probe] });
+    shareBtn.addEventListener('click', async () => {
+      const file = new File([await current()], fileName(), { type: 'image/png' });
+      navigator.share({ files: [file], title: d.title, url: d.url }).catch(() => {});
+    });
+  }
 </script>
 
 <style>
   .badges { display: flex; gap: 6px; min-height: 0; margin-bottom: 8px; }
   .page-title { overflow-wrap: anywhere; }
-  .when { font-size: 1.05rem; margin: 12px 0 24px; }
+  .when-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 12px 0 24px; }
+  .when { font-size: 1.05rem; margin: 0; }
+  .pop { position: relative; }
+  .pop summary {
+    list-style: none; display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: 999px;
+    border: 1px solid var(--accent); color: var(--accent); font-size: .875rem; cursor: pointer; user-select: none;
+  }
+  .pop summary::-webkit-details-marker { display: none; }
+  .pop summary:hover, .pop[open] summary { background: var(--accent-soft); }
+  .pop .menu {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 5; min-width: 220px; padding: 6px;
+    border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow);
+  }
+  .pop .group + .group { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
+  .pop .label { margin: 4px 10px 2px; font-size: .75rem; font-weight: 600; color: var(--muted); }
+  .pop .menu button { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--r-sm); background: none; color: var(--text); font: inherit; font-size: .9rem; text-align: left; cursor: pointer; }
+  .pop .menu button:hover { background: var(--surface-2); }
+  .pop .menu button[hidden] { display: none; }
+  .qr :global(svg) { display: block; width: 100%; height: auto; }
+  .x { position: absolute; top: 16px; right: 16px; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgb(0 0 0 / .06); color: inherit; font-size: 1rem; cursor: pointer; }
+
+  /* 滿版 QR code：一律白底黑字，投影最清楚 */
+  .qr-full {
+    width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 24px; border: 0;
+    background: #fff; color: #18181b;
+  }
+  .qr-full[open] { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+  .qr-full::backdrop { background: #fff; }
+  .qr-full .qr { width: min(78vw, 64dvh); }
+  .qr-title { margin: 0; max-width: min(90vw, 900px); font-size: clamp(1.1rem, 3vw, 2rem); font-weight: 700; text-align: center; overflow-wrap: anywhere; }
+  .qr-url { margin: 0; font-size: clamp(.9rem, 2vw, 1.25rem); color: #5d5d68; overflow-wrap: anywhere; text-align: center; }
+  .qr-actions { display: flex; gap: 8px; }
+  .qr-full .btn { color: #18181b; border-color: #e1e1e6; background: #fff; cursor: pointer; font: inherit; font-size: .875rem; }
+  .qr-full .x { color: #18181b; }
+
+  /* 分享圖預覽 */
+  .card-dlg { width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg); color: var(--text); }
+  .card-dlg[open] { display: flex; flex-direction: column; gap: 12px; }
+  .card-dlg::backdrop { background: rgb(0 0 0 / .5); }
+  .card-head { position: relative; display: flex; align-items: center; min-height: 40px; padding-right: 48px; }
+  .card-head .x { top: 0; right: 0; }
+  .seg { display: inline-flex; padding: 3px; border-radius: var(--r-md); background: var(--surface-2); }
+  .seg button { padding: 6px 12px; border: 0; border-radius: var(--r-sm); background: none; color: var(--muted); font: inherit; font-size: .85rem; cursor: pointer; }
+  .seg button[aria-pressed='true'] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+  .card-preview { display: flex; justify-content: center; min-height: 0; flex: 1; }
+  .card-preview img { display: block; max-width: 100%; max-height: calc(100dvh - 200px); aspect-ratio: 1; object-fit: contain; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface-2); }
+  .card-dlg[data-kind='story'] .card-preview img { aspect-ratio: 9 / 16; }
+  .card-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+  .card-actions .done { margin: 0 auto 0 0; }
+  .card-actions .btn { cursor: pointer; font: inherit; font-size: .875rem; background: none; }
+  .card-actions .btn[hidden], .qr-actions .btn[hidden] { display: none; }
+  .card-actions .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .done { margin: 4px 10px; font-size: .8rem; color: var(--accent); }
+  .done:empty { display: none; }
+  .pop .menu a { display: block; padding: 8px 10px; border-radius: var(--r-sm); color: var(--text); text-decoration: none; font-size: .9rem; }
+  .pop .menu a:hover { background: var(--surface-2); }
   .notice { padding: 12px 16px; border-radius: var(--r-md); background: var(--warn-soft); color: var(--warn); }
   .grid { display: grid; gap: 32px; }
   @media (min-width: 900px) { .grid { grid-template-columns: 1fr 300px; align-items: start; } }
