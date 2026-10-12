@@ -36,7 +36,7 @@ const other = e.links.filter((u) => !links.some(([, v]) => v === u));
 // 加到自己的行事曆：Google 開預填好的新增畫面，Apple／Outlook 下載 .ics。有子場次的每個子場次各一組
 const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i, all) => ({ ...g, ics: href(`/events/${all.length > 1 ? `${e.id}-${i + 1}` : e.id}.ics`) })) : [];
 ---
-<Base title={e.title} description={`${formatWhen(e)}｜${e.venue ?? ''}`}>
+<Base title={e.title} description={`${formatWhen(e)}｜${e.venue ?? ''}`} image={new URL(href(`/events/${e.id}/og.png`), Astro.site).href}>
   <a class="back" href={href('/events/')}>← 所有活動</a>
   <div class="badges">
     {e.jothon && <span class="badge accent">揪松主辦</span>}
