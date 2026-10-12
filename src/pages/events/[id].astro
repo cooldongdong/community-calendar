@@ -1,5 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
+import { googleLinks, onCalendar } from '../../lib/ics';
 import { editUrl, formatWhen, fromAiMonday, getEvents, historyOf, href, sourceLink, tentative, vanishedEarly, type Event } from '../../lib/data';
 
 // 下架的不產生頁面（網址會變成 404）
@@ -31,6 +32,8 @@ const links = [
   ['活動頁', e.page_url],
 ].filter(([, v]) => v) as [string, string][];
 const other = e.links.filter((u) => !links.some(([, v]) => v === u));
+// 加到自己的行事曆：Google 開預填好的新增畫面，Apple／Outlook 下載 .ics。有子場次的每個子場次各一組
+const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i, all) => ({ ...g, ics: href(`/events/${all.length > 1 ? `${e.id}-${i + 1}` : e.id}.ics`) })) : [];
 ---
 <Base title={e.title} description={`${formatWhen(e)}｜${e.venue ?? ''}`}>
   <a class="back" href={href('/events/')}>← 所有活動</a>
@@ -40,7 +43,23 @@ const other = e.links.filter((u) => !links.some(([, v]) => v === u));
     {vanishedEarly(e) && <span class="badge warn">共筆已移除</span>}
   </div>
   <h1 class="page-title">{e.title}</h1>
-  <p class="when mono">{tentative(e) ? `${e.date_start}・講者邀約中，時間未定` : formatWhen(e)}</p>
+  <div class="when-row">
+    <p class="when mono">{tentative(e) ? `${e.date_start}・講者邀約中，時間未定` : formatWhen(e)}</p>
+    {cal.length > 0 && (
+      <details class="add-cal" data-add-cal>
+        <summary>＋ 加到行事曆</summary>
+        <div class="menu">
+          {cal.map((c) => (
+            <div class="group">
+              {c.label && <p class="label">{c.label}</p>}
+              <a href={c.url} target="_blank" rel="noopener">Google 日曆</a>
+              <a href={c.ics}>Apple／Outlook（.ics）</a>
+            </div>
+          ))}
+        </div>
+      </details>
+    )}
+  </div>
 
   {e.cancelled && <p class="notice">這場活動已停辦。</p>}
 
@@ -155,12 +174,36 @@ const other = e.links.filter((u) => !links.some(([, v]) => v === u));
     if (d) d.open = true;
   });
   if (location.hash === '#history') document.querySelector<HTMLDetailsElement>('#history')?.setAttribute('open', '');
+
+  // 「加到行事曆」選單：點外面或按 Esc 收起來
+  const addCal = document.querySelector<HTMLDetailsElement>('[data-add-cal]');
+  if (addCal) {
+    document.addEventListener('click', (ev) => { if (!addCal.contains(ev.target as Node)) addCal.open = false; });
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') addCal.open = false; });
+    addCal.querySelectorAll('a').forEach((a) => a.addEventListener('click', () => (addCal.open = false)));
+  }
 </script>
 
 <style>
   .badges { display: flex; gap: 6px; min-height: 0; margin-bottom: 8px; }
   .page-title { overflow-wrap: anywhere; }
-  .when { font-size: 1.05rem; margin: 12px 0 24px; }
+  .when-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 12px 0 24px; }
+  .when { font-size: 1.05rem; margin: 0; }
+  .add-cal { position: relative; }
+  .add-cal summary {
+    list-style: none; display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: 999px;
+    border: 1px solid var(--accent); color: var(--accent); font-size: .875rem; cursor: pointer; user-select: none;
+  }
+  .add-cal summary::-webkit-details-marker { display: none; }
+  .add-cal summary:hover, .add-cal[open] summary { background: var(--accent-soft); }
+  .add-cal .menu {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 5; min-width: 220px; padding: 6px;
+    border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow);
+  }
+  .add-cal .group + .group { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
+  .add-cal .label { margin: 4px 10px 2px; font-size: .75rem; font-weight: 600; color: var(--muted); }
+  .add-cal .menu a { display: block; padding: 8px 10px; border-radius: var(--r-sm); color: var(--text); text-decoration: none; font-size: .9rem; }
+  .add-cal .menu a:hover { background: var(--surface-2); }
   .notice { padding: 12px 16px; border-radius: var(--r-md); background: var(--warn-soft); color: var(--warn); }
   .grid { display: grid; gap: 32px; }
   @media (min-width: 900px) { .grid { grid-template-columns: 1fr 300px; align-items: start; } }
