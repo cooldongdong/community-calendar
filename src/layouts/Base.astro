@@ -1,5 +1,5 @@
 ---
-import { REPO, SOURCE_URL, href } from '../lib/data';
+import { PREVIEW, REPO, SOURCE_URL, href } from '../lib/data';
 
 interface Props { title?: string; description?: string; image?: string }
 const { title, description = 'g0v 社群近期活動：黑客松、AI Monday、各地小聚。可訂閱成日曆。', image } = Astro.props;
@@ -16,6 +16,7 @@ const fullTitle = title ? `${title}｜g0v 社群行事曆` : 'g0v 社群行事�
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
+    {PREVIEW && <meta name="robots" content="noindex, nofollow" />}
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
     {image && <meta property="og:image" content={image} />}
@@ -29,6 +30,7 @@ const fullTitle = title ? `${title}｜g0v 社群行事曆` : 'g0v 社群行事�
   </head>
   <body>
     <a class="skip" href="#main">跳到主要內容</a>
+    {PREVIEW && <p class="preview-banner">這是預覽版，不是正式站。在這裡送出的修改會開到測試用的 <a href={REPO}>{REPO.replace('https://github.com/', '')}</a>，不會影響正式資料。</p>}
     <header class="site-header">
       <div class="wrap">
         <a class="brand" href={href('/')}><span class="mark">g0v</span>社群行事曆</a>
@@ -163,6 +165,8 @@ const fullTitle = title ? `${title}｜g0v 社群行事曆` : 'g0v 社群行事�
   .skip { position: absolute; left: 16px; top: -48px; background: var(--accent); color: #fff; padding: 8px 12px; border-radius: var(--r-sm); z-index: 10; }
   .skip:focus { top: 8px; }
 
+  .preview-banner { margin: 0; padding: 8px 16px; background: var(--warn-soft); color: var(--warn); border-bottom: 1px solid var(--line); font-size: .85rem; text-align: center; }
+  .preview-banner a { color: inherit; }
   .site-header { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
   .site-header .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
   .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text); text-decoration: none; letter-spacing: -.01em; }
