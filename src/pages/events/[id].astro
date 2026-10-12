@@ -329,16 +329,15 @@ const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i
       const img = await qrImage();
       const fit = (s: string, w: number) => { let t = s; while (t && x.measureText(t).width > w) t = t.slice(0, -2) + '…'; return t; };
       if (story) {
-        // 直式：日期、地點接在標題下面用整行寬度，QR code 置中放在下方
+        // 直式：日期、地點接在標題下面用整行寬度，QR code 放在左下，跟文字靠同一條線
         y += 40;
         x.font = `700 52px ${font}`; x.fillStyle = '#2f55d4';
         x.fillText(fit(d.when!, maxW), L, y);
         if (d.where) { y += 64; x.font = `400 40px ${font}`; x.fillStyle = '#5d5d68'; x.fillText(fit(d.where, maxW), L, y); }
         const qrSize = 360, top = H - 220 - qrSize;
-        x.drawImage(img, (W - qrSize) / 2, top, qrSize, qrSize);
-        x.font = `400 30px ${font}`; x.fillStyle = '#5d5d68'; x.textAlign = 'center';
-        x.fillText('掃描看活動資訊', W / 2, top + qrSize + 56);
-        x.textAlign = 'left';
+        x.drawImage(img, L, top, qrSize, qrSize);
+        x.font = `400 30px ${font}`; x.fillStyle = '#5d5d68';
+        x.fillText('掃描看活動資訊', L, top + qrSize + 56);
       } else {
         // 正方形：日期、地點在左下，QR code 在右下
         const qrSize = 220, bottom = H - 90;
