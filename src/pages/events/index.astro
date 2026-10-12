@@ -298,9 +298,7 @@ const sameDay = new Map(all.filter(vanishedEarly).map((e) => [e.id, all.filter((
       const vis = visible();
       const k = vis.filter((r) => picked.has(r.dataset.id!)).length;
       const off = picked.size - k;
-      selText.textContent = picked.size
-        ? `已選 ${picked.size} 場${off ? `（${off} 場不在目前的篩選裡）` : ''}`
-        : '點活動來選取，Shift＋點可以選一段';
+      selText.textContent = `已選 ${picked.size} 場${off ? `（${off} 場不在目前的篩選裡）` : ''}`;
       clearBtn.hidden = !picked.size;
       selAll.checked = vis.length > 0 && k === vis.length;
       selAll.indeterminate = k > 0 && k < vis.length;
