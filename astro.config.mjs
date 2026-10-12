@@ -8,4 +8,7 @@ export default defineConfig({
   site: process.env.SITE ?? 'https://g0v.github.io',
   base: process.env.BASE ?? '/community-calendar',
   trailingSlash: 'always',
+  // Astro 7 預設改用 JSX 的空白規則，會吃掉元素之間的空白（「大松（g0v 黑客松） 15 場」變成黏在一起）。
+  // true 是 Astro 6 的做法：只拿掉不影響畫面的空白
+  compressHTML: true,
 });
