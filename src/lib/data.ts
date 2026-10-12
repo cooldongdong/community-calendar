@@ -11,12 +11,19 @@ export const REPO = `https://github.com/${import.meta.env.PUBLIC_REPO || 'g0v/co
 export const PREVIEW = !!import.meta.env.PUBLIC_PREVIEW;
 export const CONTACT_EMAIL = site.contact_email;
 export const SOURCE_URL = 'https://g0v.hackmd.io/@jothon/event';
+// 共筆的編輯畫面（左右分割）。HackMD 只認得標題的錨點，所以最多跳到那個月份（「2026.10」的錨點是 #202610）；
+// 編輯畫面裡的文字是打開後才畫出來的，text fragment 對不到，要靠使用者自己 Cmd／Ctrl＋F
+export const sourceEditLink = (e: { month_section?: string | null }) =>
+  `https://g0v.hackmd.io/N3EnvC7ATSG-r71zuleuyQ?both${e.month_section ? `#${e.month_section.replace(/\D/g, '')}` : ''}`;
+
+// 這場活動在共筆上的第一行，去掉 Markdown 記號（跟畫面上看到的字一樣）。不在共筆上的是 null
+export const sourceLine = (e: { in_source: boolean; raw?: string | null }) =>
+  (e.in_source && e.raw?.split('\n')[0].replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|__|~~|`/g, '').replace(/\s+/g, ' ').trim()) || null;
 
 // 還在共筆上的活動，連到共筆上那一段：網址帶 text fragment（#:~:text=第一行），瀏覽器會捲過去並標出來。
-// 第一行去掉 Markdown 記號才會跟畫面上的字一樣；對不到或瀏覽器不支援時，就是打開共筆最上面
+// 對不到或瀏覽器不支援時，就是打開共筆最上面
 export const sourceLink = (e: { in_source: boolean; raw?: string | null }) => {
-  const line = e.in_source ? e.raw?.split('\n')[0] : undefined;
-  const text = line?.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|__|~~|`/g, '').replace(/\s+/g, ' ').trim();
+  const text = sourceLine(e);
   // 「-」「,」「&」在 text fragment 裡有特別意思，要編碼
   return text ? `${SOURCE_URL}#:~:text=${encodeURIComponent(text).replace(/-/g, '%2D')}` : SOURCE_URL;
 };
