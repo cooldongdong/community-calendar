@@ -28,6 +28,16 @@ export const sourceLink = (e: { in_source: boolean; raw?: string | null }) => {
   return text ? `${SOURCE_URL}#:~:text=${encodeURIComponent(text).replace(/-/g, '%2D')}` : SOURCE_URL;
 };
 
+// 小松果（g0v 台北社群空間的使用紀錄）。共筆來的活動也可能在小松果上有一筆，那時它是第二個來源。
+// 連到小松果上那一行：取那一行裡的活動名稱當 text fragment（編號每年重來，對不準）
+export const HSIAOTHON_URL = 'https://g0v.hackmd.io/@jothon/hsiaothon';
+export const hsiaothonLink = (h: { line: string }) => {
+  const name = h.line.match(/\[([^\]]+)\]\(/)?.[1] ?? h.line.replace(/^-\s*\[No\.\d+\]\s*/, '').trim();
+  return name ? `${HSIAOTHON_URL}#:~:text=${encodeURIComponent(name).replace(/-/g, '%2D')}` : HSIAOTHON_URL;
+};
+// 小松果附的連結不一定是共筆（有些是臉書貼文），只有 HackMD 的才叫「共筆」
+export const isNotes = (u: string) => /hackmd\.io\//.test(u);
+
 export interface SubSession { name: string; date: string | null; start_time: string | null; end_time: string | null; venue: string | null }
 export interface Event {
   id: string; source: string; source_url: string;

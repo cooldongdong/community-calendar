@@ -2,7 +2,7 @@
 import Base from '../../layouts/Base.astro';
 import QRCode from 'qrcode';
 import { googleLinks, onCalendar } from '../../lib/ics';
-import { editUrl, formatWhen, fromAiMonday, getEvents, historyOf, href, sourceLink, tentative, vanishedEarly, type Event } from '../../lib/data';
+import { editUrl, formatWhen, fromAiMonday, getEvents, historyOf, href, hsiaothonLink, isNotes, sourceLink, tentative, vanishedEarly, type Event } from '../../lib/data';
 
 // 下架的不產生頁面（網址會變成 404）
 export async function getStaticPaths() {
@@ -27,13 +27,18 @@ const info = [
   ['地址', e.address],
   ['主辦', e.host],
 ].filter(([, v]) => v) as [string, string, string?][];
+// 小松果附的連結（成果共筆或臉書貼文）是活動內容，放在這裡，不放在「這筆資料」。
+// 不是 HackMD 的不叫「共筆」，跟其他連結一樣只列網址
+const hsLink = e.hsiaothon?.notes_url;
+const notes = e.notes_url ?? (hsLink && isNotes(hsLink) ? hsLink : null);
 const links = [
   ['報名', e.signup_url],
   ['線上參加', e.online_url],
-  ['共筆', e.notes_url],
+  ['共筆', notes && isNotes(notes) ? notes : null],
   ['活動頁', e.page_url],
 ].filter(([, v]) => v) as [string, string][];
-const other = e.links.filter((u) => !links.some(([, v]) => v === u));
+const other = [...new Set([...(notes && !isNotes(notes) ? [notes] : []), ...e.links, ...(hsLink ? [hsLink] : [])])]
+  .filter((u) => !links.some(([, v]) => v === u));
 // 加到自己的行事曆：Google 開預填好的新增畫面，Apple／Outlook 下載 .ics。有子場次的每個子場次各一組
 // 分享：QR code 建置時就畫好（SVG），分享圖在瀏覽器裡當場畫（見下面的 script）
 const pageUrl = new URL(href(`/events/${e.id}/`), Astro.site).href;
@@ -45,6 +50,7 @@ const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i
   <a class="back" href={href('/events/')}>← 所有活動</a>
   <div class="badges">
     {e.jothon && <span class="badge accent">揪松主辦</span>}
+    {e.hsiaothon && <span class="badge pine" title={`g0v 台北社群空間的使用紀錄（小松果）${e.hsiaothon.year} No.${e.hsiaothon.no}`}>小松果</span>}
     {e.cancelled && <span class="badge warn">停辦</span>}
     {vanishedEarly(e) && <span class="badge warn">共筆已移除</span>}
   </div>
@@ -157,6 +163,12 @@ const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i
           <pre class="raw">{e.raw}</pre>
         </section>
       )}
+      {e.hsiaothon && e.source !== 'hsiaothon' && (
+        <section>
+          <h2>小松果上的原文</h2>
+          <pre class="raw">{e.hsiaothon.line}</pre>
+        </section>
+      )}
       <!-- 修改紀錄預設收起來：大部分人只想看活動本身，紀錄是給要確認資料來源的人看的 -->
       {(log.length > 0 || fixes.length > 0) && (
         <details id="history" class="history">
@@ -184,7 +196,7 @@ const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i
         </dl>
       ) : e.source === 'hsiaothon' ? (
         <dl class="info small">
-          <dt>來源</dt><dd><a href={e.source_url}>小松果</a>（g0v 台北社群空間的使用紀錄）</dd>
+          <dt>來源</dt><dd><a href={hsiaothonLink(e.hsiaothon!)}>小松果</a>（g0v 台北社群空間的使用紀錄）</dd>
           <dt>編號</dt><dd class="mono">{e.hsiaothon!.year} No.{e.hsiaothon!.no}</dd>
         </dl>
       ) : e.source === 'manual' ? (
@@ -193,10 +205,9 @@ const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i
         </dl>
       ) : (
         <dl class="info small">
-          <dt>來源</dt><dd><a href={sourceLink(e)}>揪松團活動共筆</a></dd>
+          <dt>來源</dt><dd><a href={sourceLink(e)}>揪松團活動共筆</a>{e.hsiaothon && <><br /><a href={hsiaothonLink(e.hsiaothon)}>小松果</a> <span class="mono">{e.hsiaothon.year} No.{e.hsiaothon.no}</span></>}</dd>
           <dt>第一次看到</dt><dd class="mono">{e.first_seen}</dd>
           <dt>共筆上</dt><dd>{e.in_source ? '還在' : e.removed_from_source ? `${e.removed_from_source} 前已移除` : '已移除'}</dd>
-          {e.hsiaothon && <><dt>小松果</dt><dd><span class="mono">{e.hsiaothon.year} No.{e.hsiaothon.no}</span>{e.hsiaothon.notes_url && <>・<a href={e.hsiaothon.notes_url}>成果共筆</a></>}</dd></>}
         </dl>
       )}
       {e.warnings.length > 0 && (
