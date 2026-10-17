@@ -50,7 +50,6 @@ const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i
   <a class="back" href={href('/events/')}>← 所有活動</a>
   <div class="badges">
     {e.jothon && <span class="badge accent">揪松主辦</span>}
-    {e.hsiaothon && <span class="badge pine" title={`g0v 台北社群空間的使用紀錄（小松果）${e.hsiaothon.year} No.${e.hsiaothon.no}`}>小松果</span>}
     {e.cancelled && <span class="badge warn">停辦</span>}
     {vanishedEarly(e) && <span class="badge warn">共筆已移除</span>}
   </div>
@@ -205,7 +204,7 @@ const cal = onCalendar(e) && !e.cancelled ? googleLinks(e, Astro.site).map((g, i
         </dl>
       ) : (
         <dl class="info small">
-          <dt>來源</dt><dd><a href={sourceLink(e)}>揪松團活動共筆</a>{e.hsiaothon && <><br /><a href={hsiaothonLink(e.hsiaothon)}>小松果</a> <span class="mono">{e.hsiaothon.year} No.{e.hsiaothon.no}</span></>}</dd>
+          <dt>來源</dt><dd><a href={sourceLink(e)}>揪松團活動共筆</a>{e.hsiaothon && <><br /><a href={hsiaothonLink(e.hsiaothon)}>小松果</a></>}</dd>
           <dt>第一次看到</dt><dd class="mono">{e.first_seen}</dd>
           <dt>共筆上</dt><dd>{e.in_source ? '還在' : e.removed_from_source ? `${e.removed_from_source} 前已移除` : '已移除'}</dd>
         </dl>
