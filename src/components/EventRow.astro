@@ -35,7 +35,6 @@ const text = [e.title, e.venue, e.address, e.host, e.series_label, ...e.cities, 
     <div class="meta">
       {e.jothon && <span class="badge accent">揪松主辦</span>}
       {e.series_label && !e.jothon && <span class="badge">{e.series_label}</span>}
-      {e.hsiaothon && <span class="badge pine" title={`g0v 台北社群空間的使用紀錄（小松果）${e.hsiaothon.year} No.${e.hsiaothon.no}`}>小松果</span>}
       {e.cancelled && <span class="badge warn">停辦</span>}
       {vanishedEarly(e) && <span class="badge warn">共筆已移除</span>}
       {time && <span class={tentative(e) ? '' : 'mono'}>{time}</span>}
